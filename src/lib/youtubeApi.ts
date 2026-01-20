@@ -1,16 +1,33 @@
-// YouTube API Client - Now proxied through backend
-// API key is securely stored server-side in Vercel
+// YouTube API Client
+// In development: calls YouTube API directly (requires VITE_YOUTUBE_API_KEY in .env)
+// In production: calls secure Vercel proxy (API key stored server-side)
 
 import { apiCache } from './apiCache';
 
 // Check if we're in development or production
 const IS_DEV = import.meta.env.DEV;
-const API_BASE = IS_DEV
-    ? 'http://localhost:3000/api/youtube'  // Local dev
-    : '/api/youtube';  // Production (Vercel)
+
+// In dev mode, we call YouTube directly. In production, we use the secure proxy.
+const USE_PROXY = !IS_DEV;
+const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3';
+const PROXY_BASE = '/api/youtube';
+const DEV_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY || '';
 
 const MAX_RETRIES = 3;
 const MAX_PAGES = 10; // Safety limit for pagination
+
+// Helper to build the correct URL based on environment
+function buildApiUrl(endpoint: string, params: Record<string, string>): string {
+    if (USE_PROXY) {
+        // Production: use Vercel proxy
+        const queryParams = new URLSearchParams({ endpoint, ...params });
+        return `${PROXY_BASE}?${queryParams.toString()}`;
+    } else {
+        // Development: call YouTube directly
+        const queryParams = new URLSearchParams({ ...params, key: DEV_API_KEY });
+        return `${YOUTUBE_API_BASE}/${endpoint}?${queryParams.toString()}`;
+    }
+}
 
 export interface VideoInfo {
     videoId: string;
@@ -90,7 +107,7 @@ export async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
     const cached = apiCache.get(cacheKey);
     if (cached) return cached;
 
-    const url = `${API_BASE}?endpoint=videos&part=snippet,contentDetails&id=${videoId}`;
+    const url = buildApiUrl('videos', { part: 'snippet,contentDetails', id: videoId });
     const response = await fetchWithRetry(url);
 
     if (!response.ok) {
@@ -130,11 +147,11 @@ export async function fetchChannelInfo(
 
     let url: string;
     if (identifierType === 'id') {
-        url = `${API_BASE}?endpoint=channels&part=snippet&id=${identifier}`;
+        url = buildApiUrl('channels', { part: 'snippet', id: identifier });
     } else if (identifierType === 'handle') {
-        url = `${API_BASE}?endpoint=channels&part=snippet&forHandle=${identifier}`;
+        url = buildApiUrl('channels', { part: 'snippet', forHandle: identifier });
     } else {
-        url = `${API_BASE}?endpoint=channels&part=snippet&forUsername=${identifier}`;
+        url = buildApiUrl('channels', { part: 'snippet', forUsername: identifier });
     }
 
     const response = await fetchWithRetry(url);
@@ -164,7 +181,7 @@ export async function fetchChannelInfo(
 }
 
 export async function fetchPlaylistInfo(playlistId: string): Promise<PlaylistInfo> {
-    const url = `${API_BASE}?endpoint=playlists&part=snippet,contentDetails&id=${playlistId}`;
+    const url = buildApiUrl('playlists', { part: 'snippet,contentDetails', id: playlistId });
     const response = await fetchWithRetry(url);
 
     if (!response.ok) {
@@ -204,7 +221,13 @@ export async function fetchPlaylistVideos(playlistId: string, maxResults = 50): 
         }
 
         const maxItems = Math.min(maxResults - videos.length, 50);
-        const url = `${API_BASE}?endpoint=playlistItems&part=snippet&playlistId=${playlistId}&maxResults=${maxItems}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+        const params: Record<string, string> = {
+            part: 'snippet',
+            playlistId: playlistId,
+            maxResults: maxItems.toString(),
+        };
+        if (nextPageToken) params.pageToken = nextPageToken;
+        const url = buildApiUrl('playlistItems', params);
         const response = await fetchWithRetry(url);
 
         if (!response.ok) {
@@ -281,7 +304,13 @@ export async function fetchChannelPlaylists(channelId: string, maxResults = 50):
         }
 
         const maxItems = Math.min(maxResults - playlists.length, 50);
-        const url = `${API_BASE}?endpoint=playlists&part=snippet,contentDetails&channelId=${channelId}&maxResults=${maxItems}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+        const params: Record<string, string> = {
+            part: 'snippet,contentDetails',
+            channelId: channelId,
+            maxResults: maxItems.toString(),
+        };
+        if (nextPageToken) params.pageToken = nextPageToken;
+        const url = buildApiUrl('playlists', params);
         const response = await fetchWithRetry(url);
 
         if (!response.ok) {
