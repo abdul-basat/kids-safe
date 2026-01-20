@@ -70,9 +70,33 @@ export async function addVideos(videos: Array<{
 }
 
 export async function deleteVideo(id: string): Promise<void> {
+  // Get the video to find its video_id
+  const video = await db.getVideoById(id);
+  if (video) {
+    // Remove from all playlists first
+    const allPlaylists = await db.getPlaylists();
+    for (const playlist of allPlaylists) {
+      const pvs = await db.getPlaylistVideos(playlist.id);
+      const pv = pvs.find(p => p.video_id === video.video_id);
+      if (pv) {
+        await db.deletePlaylistVideo(pv.id);
+      }
+    }
+  }
+  // Then delete the video
   await db.deleteVideo(id);
 }
 
 export async function deleteVideoByVideoId(videoId: string): Promise<void> {
+  // Remove from all playlists first
+  const allPlaylists = await db.getPlaylists();
+  for (const playlist of allPlaylists) {
+    const pvs = await db.getPlaylistVideos(playlist.id);
+    const pv = pvs.find(p => p.video_id === videoId);
+    if (pv) {
+      await db.deletePlaylistVideo(pv.id);
+    }
+  }
+  // Then delete the video
   await db.deleteVideoByVideoId(videoId);
 }
