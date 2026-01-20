@@ -13,25 +13,37 @@ export function extractVideoId(url: string): string | null {
 }
 
 export function extractChannelId(url: string): { type: 'id' | 'handle' | 'custom'; value: string } | null {
+  // Trim and clean up input
+  const input = url.trim();
+
+  // Full URL patterns
   const patterns: Array<{ regex: RegExp; type: 'id' | 'handle' | 'custom' }> = [
     { regex: /youtube\.com\/channel\/([a-zA-Z0-9_-]+)/, type: 'id' },
-    { regex: /youtube\.com\/@([a-zA-Z0-9_-]+)/, type: 'handle' },
-    { regex: /youtube\.com\/c\/([a-zA-Z0-9_-]+)/, type: 'custom' },
-    { regex: /youtube\.com\/user\/([a-zA-Z0-9_-]+)/, type: 'custom' },
+    { regex: /youtube\.com\/@([a-zA-Z0-9_.-]+)/, type: 'handle' },
+    { regex: /youtube\.com\/c\/([a-zA-Z0-9_.-]+)/, type: 'custom' },
+    { regex: /youtube\.com\/user\/([a-zA-Z0-9_.-]+)/, type: 'custom' },
   ];
 
   for (const { regex, type } of patterns) {
-    const match = url.match(regex);
+    const match = input.match(regex);
     if (match) return { type, value: match[1] };
   }
 
-  if (/^UC[a-zA-Z0-9_-]{22}$/.test(url)) {
-    return { type: 'id', value: url };
+  // Direct channel ID (starts with UC and is 24 chars)
+  if (/^UC[a-zA-Z0-9_-]{22}$/.test(input)) {
+    return { type: 'id', value: input };
   }
 
-  if (/^@?[a-zA-Z0-9_-]+$/.test(url)) {
-    const value = url.startsWith('@') ? url.slice(1) : url;
-    return { type: 'handle', value };
+  // Handle shorthand formats: @google, /google, google
+  // Remove leading @ or / if present
+  let cleanName = input;
+  if (cleanName.startsWith('@') || cleanName.startsWith('/')) {
+    cleanName = cleanName.slice(1);
+  }
+
+  // Validate it looks like a channel name (alphanumeric with some special chars)
+  if (/^[a-zA-Z0-9_.-]+$/.test(cleanName) && cleanName.length >= 2) {
+    return { type: 'handle', value: cleanName };
   }
 
   return null;
