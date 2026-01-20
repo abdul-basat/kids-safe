@@ -25,10 +25,11 @@ export function VideoList({ onRefresh }: VideoListProps) {
   const [addingToPlaylist, setAddingToPlaylist] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApprovedVideo | null>(null);
   const [playingVideo, setPlayingVideo] = useState<ApprovedVideo | null>(null);
-  const [isCleaning, setIsCleaning] = useState(false);
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -52,10 +53,15 @@ export function VideoList({ onRefresh }: VideoListProps) {
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
 
-    await deleteVideo(deleteTarget.id);
-    setVideos((prev) => prev.filter((v) => v.id !== deleteTarget.id));
-    setDeleteTarget(null);
-    onRefresh?.();
+    try {
+      await deleteVideo(deleteTarget.id);
+      setVideos((prev) => prev.filter((v) => v.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      onRefresh?.();
+    } catch (err) {
+      console.error('Error deleting video:', err);
+      alert('Failed to delete video. Please try again.');
+    }
   }, [deleteTarget, onRefresh]);
 
   const handleCleanup = useCallback(async () => {
@@ -65,40 +71,38 @@ export function VideoList({ onRefresh }: VideoListProps) {
       return;
     }
 
-    if (!confirm(`Found ${privateVideos.length} private/deleted videos. Remove them all?`)) {
-      return;
-    }
-
-    setIsCleaning(true);
-    try {
-      for (const video of privateVideos) {
-        await deleteVideo(video.id);
-      }
-      setVideos((prev) => prev.filter((v) => !isPrivateVideo(v)));
-      onRefresh?.();
-    } catch (err) {
-      console.error('Error cleaning up:', err);
-    } finally {
-      setIsCleaning(false);
-    }
-  }, [videos, onRefresh]);
+    // Select all private videos and show bulk delete modal
+    setSelectedIds(new Set(privateVideos.map(v => v.id)));
+    setIsSelectMode(true);
+    setShowBulkDeleteModal(true);
+  }, [videos]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
 
-    if (!confirm(`Delete ${selectedIds.size} selected video(s)?`)) return;
-
+    const count = selectedIds.size;
     setIsDeleting(true);
+    setShowBulkDeleteModal(false);
+
     try {
-      for (const id of selectedIds) {
+      const idsToDelete = Array.from(selectedIds);
+      console.log('Deleting videos:', idsToDelete);
+
+      for (const id of idsToDelete) {
         await deleteVideo(id);
+        console.log('Deleted:', id);
       }
+
       setVideos((prev) => prev.filter((v) => !selectedIds.has(v.id)));
       setSelectedIds(new Set());
       setIsSelectMode(false);
       onRefresh?.();
+
+      // Show success toast
+      alert(`✅ Successfully deleted ${count} video${count > 1 ? 's' : ''}!`);
     } catch (err) {
       console.error('Error deleting videos:', err);
+      alert('❌ Failed to delete some videos. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -166,8 +170,8 @@ export function VideoList({ onRefresh }: VideoListProps) {
             if (isSelectMode) setSelectedIds(new Set());
           }}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isSelectMode
-              ? 'bg-sky-500 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            ? 'bg-sky-500 text-white'
+            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
         >
           {isSelectMode ? 'Cancel Selection' : 'Select Videos'}
@@ -175,7 +179,7 @@ export function VideoList({ onRefresh }: VideoListProps) {
 
         {isSelectMode && selectedIds.size > 0 && (
           <button
-            onClick={handleDeleteSelected}
+            onClick={() => setShowBulkDeleteModal(true)}
             disabled={isDeleting}
             className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
           >
@@ -215,17 +219,9 @@ export function VideoList({ onRefresh }: VideoListProps) {
           </div>
           <button
             onClick={handleCleanup}
-            disabled={isCleaning}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm rounded-lg font-medium transition-colors flex items-center gap-2"
           >
-            {isCleaning ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Cleaning...
-              </>
-            ) : (
-              'Clean Up All'
-            )}
+            Clean Up All
           </button>
         </div>
       )}
@@ -239,7 +235,7 @@ export function VideoList({ onRefresh }: VideoListProps) {
             <div
               key={video.id}
               className={`bg-white rounded-xl overflow-hidden shadow-sm border relative ${isPrivate ? 'border-amber-300 bg-amber-50' :
-                  isSelected ? 'border-sky-500 ring-2 ring-sky-200' : 'border-gray-100'
+                isSelected ? 'border-sky-500 ring-2 ring-sky-200' : 'border-gray-100'
                 }`}
             >
               {/* Selection checkbox */}
@@ -370,12 +366,22 @@ export function VideoList({ onRefresh }: VideoListProps) {
         </div>
       )}
 
+      {/* Single delete modal */}
       <DeleteConfirmModal
         isOpen={!!deleteTarget}
         title="Delete Video"
         itemName={deleteTarget?.title || ''}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* Bulk delete modal */}
+      <DeleteConfirmModal
+        isOpen={showBulkDeleteModal}
+        title="Delete Selected Videos"
+        itemName={`${selectedIds.size} video${selectedIds.size > 1 ? 's' : ''}`}
+        onConfirm={handleDeleteSelected}
+        onCancel={() => setShowBulkDeleteModal(false)}
       />
     </>
   );

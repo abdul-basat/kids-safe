@@ -109,7 +109,7 @@ export function ChildViewer() {
 
   if (!currentPlaylist || currentPlaylist.videos.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-sky-100 to-sky-200 flex flex-col items-center justify-center p-8">
+      <div className="h-screen bg-gradient-to-b from-sky-100 to-sky-200 flex flex-col items-center justify-center p-8 overflow-hidden">
         <div className="text-center">
           <div className="w-24 h-24 bg-sky-200 rounded-full flex items-center justify-center mx-auto mb-6">
             <Tv className="w-12 h-12 text-sky-600" />
@@ -122,7 +122,7 @@ export function ChildViewer() {
 
         <button
           onClick={handleParentTrigger}
-          className="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors"
+          className="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors shadow-sm"
           aria-label="Parent access"
           title="Tap 5 times for parent mode"
         >
@@ -134,7 +134,7 @@ export function ChildViewer() {
 
   if (showComplete) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-amber-100 to-orange-200 flex flex-col items-center justify-center p-8">
+      <div className="h-screen bg-gradient-to-b from-amber-100 to-orange-200 flex flex-col items-center justify-center p-8 overflow-hidden">
         <div className="text-center">
           <div className="w-24 h-24 bg-amber-200 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce">
             <PartyPopper className="w-12 h-12 text-amber-600" />
@@ -148,7 +148,7 @@ export function ChildViewer() {
               setCurrentVideoIndex(0);
               setShowComplete(false);
             }}
-            className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-semibold text-lg transition-colors"
+            className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-semibold text-lg transition-colors shadow-lg active:scale-95"
           >
             Watch Again
           </button>
@@ -156,7 +156,7 @@ export function ChildViewer() {
 
         <button
           onClick={handleParentTrigger}
-          className="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors"
+          className="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors shadow-sm"
           aria-label="Parent access"
           title="Tap 5 times for parent mode"
         >
@@ -168,26 +168,28 @@ export function ChildViewer() {
 
   if (isWatching && currentVideo) {
     return (
-      <>
+      <div className="h-screen bg-black flex flex-col overflow-hidden">
         <YouTubePlayer
           videoId={currentVideo.video_id}
           onEnded={handleVideoEnd}
           autoplay
         />
 
-        <button
-          onClick={() => setIsQueueOpen(true)}
-          className="fixed bottom-8 left-8 z-50 w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
-        >
-          <List className="w-7 h-7 text-white" />
-        </button>
+        <div className="fixed bottom-8 inset-x-8 z-50 flex items-center justify-between">
+          <button
+            onClick={() => setIsQueueOpen(true)}
+            className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-colors shadow-lg"
+          >
+            <List className="w-7 h-7 text-white" />
+          </button>
 
-        <button
-          onClick={() => setIsWatching(false)}
-          className="fixed bottom-8 right-8 z-50 px-6 py-3 rounded-full bg-white/20 backdrop-blur-sm text-white font-medium hover:bg-white/30 transition-colors"
-        >
-          Back to Browse
-        </button>
+          <button
+            onClick={() => setIsWatching(false)}
+            className="px-8 py-4 rounded-full bg-white/20 backdrop-blur-md text-white font-bold hover:bg-white/30 transition-colors shadow-lg border border-white/20"
+          >
+            Back to Browse
+          </button>
+        </div>
 
         <QueueDrawer
           videos={currentPlaylist.videos}
@@ -199,190 +201,198 @@ export function ChildViewer() {
             setIsQueueOpen(false);
           }}
         />
-      </>
+      </div>
     );
   }
 
   // GRID VIEW for browsing
   if (viewMode === 'grid') {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-sky-100 to-sky-200 p-4 lg:p-8">
+      <div className="h-screen bg-gradient-to-b from-sky-100 to-sky-200 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">
+        <div className="flex items-center justify-between p-4 lg:p-6 bg-white/30 backdrop-blur-sm border-b border-white/20">
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-800 flex items-center gap-2">
             🎬 Pick a Video!
           </h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setViewMode('single')}
-              className="p-2 rounded-lg bg-white/50 hover:bg-white/80 transition-colors"
+              className="p-3 rounded-xl bg-white/60 hover:bg-white/90 transition-all shadow-sm active:scale-95"
               title="Single view"
             >
-              <LayoutList className="w-5 h-5 text-gray-600" />
+              <LayoutList className="w-6 h-6 text-gray-700" />
             </button>
             <button
               onClick={handleParentTrigger}
-              className="w-10 h-10 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors"
+              className="w-12 h-12 rounded-full bg-white/60 hover:bg-white/90 flex items-center justify-center transition-all shadow-sm active:scale-95"
               aria-label="Parent access"
               title="Tap 5 times for parent mode"
             >
-              <Settings className="w-5 h-5 text-gray-600" />
+              <Settings className="w-6 h-6 text-gray-700" />
             </button>
           </div>
         </div>
 
         {/* Video Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {currentPlaylist.videos.map((video, index) => (
-            <button
-              key={video.video_id}
-              onClick={() => handlePlayVideo(index)}
-              className="bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-xl hover:scale-105 transition-all group"
-            >
-              <div className="aspect-video relative">
-                <img
-                  src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
-                  alt={video.title}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                  <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
-                    <Play className="w-6 h-6 text-sky-600 ml-1" />
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-hide">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            {currentPlaylist.videos.map((video, index) => (
+              <button
+                key={video.video_id}
+                onClick={() => handlePlayVideo(index)}
+                className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl hover:scale-105 transition-all group border-2 border-transparent hover:border-sky-400"
+              >
+                <div className="aspect-video relative">
+                  <img
+                    src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
+                    alt={video.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                      <Play className="w-6 h-6 text-sky-600 ml-1" />
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="p-3">
-                <h3 className="text-sm font-medium text-gray-800 line-clamp-2 text-left">
-                  {video.title}
-                </h3>
-              </div>
-            </button>
-          ))}
+                <div className="p-3">
+                  <h3 className="text-sm font-bold text-gray-800 line-clamp-2 text-left leading-tight">
+                    {video.title}
+                  </h3>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     );
   }
 
-  // SINGLE VIEW (original)
+  // SINGLE VIEW
   return (
     <div
-      className="min-h-screen bg-gradient-to-b from-sky-100 to-sky-200 flex flex-col relative select-none"
+      className="h-screen bg-gradient-to-b from-sky-100 to-sky-200 flex flex-col overflow-hidden relative select-none"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      <div className="flex items-center justify-between p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 z-10">
         <div />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setViewMode('grid')}
-            className="p-2 rounded-lg bg-white/50 hover:bg-white/80 transition-colors"
+            className="p-3 rounded-xl bg-white/50 hover:bg-white/80 transition-all shadow-sm active:scale-95"
             title="Grid view"
           >
-            <Grid3X3 className="w-5 h-5 text-gray-600" />
+            <Grid3X3 className="w-6 h-6 text-gray-700" />
           </button>
           <button
             onClick={handleParentTrigger}
-            className="w-10 h-10 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors"
+            className="w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-all shadow-sm active:scale-95"
             aria-label="Parent access"
             title="Tap 5 times for parent mode"
           >
-            <Settings className="w-5 h-5 text-gray-600" />
+            <Settings className="w-6 h-6 text-gray-700" />
           </button>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-4">
+      {/* Main Preview Area */}
+      <div className="flex-1 flex flex-col items-center justify-center p-4 min-h-0">
         {currentVideo && (
           <div
-            className="w-full max-w-2xl transition-transform duration-200"
+            className="w-full max-w-4xl flex flex-col items-center transition-transform duration-200"
             style={{ transform: `translateX(${swipeOffset * 0.5}px)` }}
           >
-            <button
-              onClick={() => handlePlayVideo()}
-              className="w-full aspect-video rounded-3xl overflow-hidden shadow-2xl group relative"
-            >
-              <img
-                src={getVideoThumbnail(currentVideo.video_id, 'high')}
-                alt={currentVideo.title}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-                <div className="w-20 h-20 rounded-full bg-white/90 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Play className="w-10 h-10 text-sky-600 ml-1" />
+            <div className="relative group w-full flex items-center justify-center">
+              {/* Previous Arrow */}
+              <button
+                onClick={previousVideo}
+                disabled={!hasPreviousVideo}
+                className="absolute left-0 lg:-left-20 z-10 w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none hover:bg-gray-50 active:scale-90 transition-all"
+              >
+                <ChevronLeft className="w-8 h-8 text-sky-600" />
+              </button>
+
+              <button
+                onClick={() => handlePlayVideo()}
+                className="w-full aspect-video rounded-3xl overflow-hidden shadow-2xl group relative border-4 border-white"
+              >
+                <img
+                  src={getVideoThumbnail(currentVideo.video_id, 'high')}
+                  alt={currentVideo.title}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                  <div className="w-24 h-24 rounded-full bg-white/95 flex items-center justify-center group-hover:scale-110 transition-transform shadow-2xl">
+                    <Play className="w-12 h-12 text-sky-600 ml-1" />
+                  </div>
                 </div>
+              </button>
+
+              {/* Next Arrow */}
+              <button
+                onClick={nextVideo}
+                disabled={!hasNextVideo}
+                className="absolute right-0 lg:-right-20 z-10 w-16 h-16 rounded-full bg-white shadow-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none hover:bg-gray-50 active:scale-90 transition-all"
+              >
+                <ChevronRight className="w-8 h-8 text-sky-600" />
+              </button>
+            </div>
+
+            <div className="text-center mt-6 w-full px-4">
+              <h2 className="text-2xl lg:text-3xl font-black text-gray-800 line-clamp-2 leading-tight">
+                {currentVideo.title}
+              </h2>
+              <div className="mt-3">
+                <span className="bg-sky-500 text-white px-6 py-2 rounded-full text-sm font-black shadow-sm ring-4 ring-sky-200">
+                  {currentVideoIndex + 1} / {currentPlaylist.videos.length}
+                </span>
               </div>
-            </button>
-
-            <h2 className="text-2xl font-bold text-gray-800 text-center mt-6 px-4">
-              {currentVideo.title}
-            </h2>
-
-            <div className="flex items-center justify-center gap-2 mt-4 text-gray-600">
-              <span className="bg-sky-200 text-sky-800 px-3 py-1 rounded-full text-sm font-medium">
-                {currentVideoIndex + 1} of {currentPlaylist.videos.length}
-              </span>
             </div>
           </div>
         )}
       </div>
 
-      <div className="p-4 flex items-center justify-between">
-        <button
-          onClick={previousVideo}
-          disabled={!hasPreviousVideo}
-          className="w-16 h-16 rounded-2xl bg-white shadow-lg flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 active:bg-gray-100 transition-colors"
-        >
-          <ChevronLeft className="w-8 h-8 text-gray-700" />
-        </button>
-
-        <button
-          onClick={() => setIsQueueOpen(true)}
-          className="w-16 h-16 rounded-2xl bg-white shadow-lg flex items-center justify-center hover:bg-gray-50 active:bg-gray-100 transition-colors"
-        >
-          <List className="w-8 h-8 text-gray-700" />
-        </button>
-
-        <button
-          onClick={nextVideo}
-          disabled={!hasNextVideo}
-          className="w-16 h-16 rounded-2xl bg-white shadow-lg flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 active:bg-gray-100 transition-colors"
-        >
-          <ChevronRight className="w-8 h-8 text-gray-700" />
-        </button>
-      </div>
-
-      {/* Up Next Section */}
+      {/* Bottom Up Next Section - No scroll required! */}
       {currentPlaylist.videos.length > 1 && (
-        <div className="px-4 pb-4">
-          <h3 className="text-sm font-semibold text-gray-600 mb-2">Up Next</h3>
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {currentPlaylist.videos
-              .slice(currentVideoIndex + 1, currentVideoIndex + 6)
-              .map((video, idx) => {
-                const actualIndex = currentVideoIndex + 1 + idx;
-                return (
-                  <button
-                    key={video.video_id}
-                    onClick={() => handlePlayVideo(actualIndex)}
-                    className="flex-shrink-0 w-32 rounded-lg overflow-hidden bg-white shadow-md hover:shadow-lg transition-shadow"
-                  >
-                    <div className="aspect-video relative">
-                      <img
-                        src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
-                        alt={video.title}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
-                        <Play className="w-8 h-8 text-white drop-shadow-lg" />
+        <div className="bg-white/40 backdrop-blur-sm border-t border-white/30 p-4 lg:p-6 z-10">
+          <div className="max-w-7xl mx-auto">
+            <h3 className="text-sm font-black text-sky-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <span className="w-2 h-2 bg-sky-500 rounded-full animate-pulse" />
+              Up Next
+            </h3>
+            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide scroll-smooth">
+              {currentPlaylist.videos
+                .slice(currentVideoIndex + 1, currentVideoIndex + 11)
+                .map((video, idx) => {
+                  const actualIndex = currentVideoIndex + 1 + idx;
+                  return (
+                    <button
+                      key={video.video_id}
+                      onClick={() => handlePlayVideo(actualIndex)}
+                      className="flex-shrink-0 w-44 md:w-64 rounded-2xl overflow-hidden bg-white shadow-lg hover:shadow-2xl hover:scale-105 transition-all group border-2 border-transparent hover:border-sky-400"
+                    >
+                      <div className="aspect-video relative">
+                        <img
+                          src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
+                          alt={video.title}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                          <Play className="w-10 h-10 text-white drop-shadow-lg" />
+                        </div>
                       </div>
-                    </div>
-                    <p className="text-xs p-2 text-gray-700 line-clamp-2 text-left">
-                      {video.title}
-                    </p>
-                  </button>
-                );
-              })}
+                      <div className="p-3 bg-white">
+                        <p className="text-xs md:text-sm font-bold text-gray-800 line-clamp-2 text-left leading-snug">
+                          {video.title}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
         </div>
       )}
