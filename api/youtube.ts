@@ -4,7 +4,15 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 // Securely handles API calls from the client with server-side API key
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3';
-const API_KEY = process.env.YOUTUBE_API_KEY;
+
+// Load multiple API keys for rotation
+const API_KEYS = [
+    process.env.YOUTUBE_API_KEY,
+    process.env.YOUTUBE_API_KEY_2,
+    process.env.YOUTUBE_API_KEY_3,
+    process.env.YOUTUBE_API_KEY_4,
+    process.env.YOUTUBE_API_KEY_5,
+].filter(Boolean) as string[];
 
 // Simple in-memory rate limiting (per IP)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -38,9 +46,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // Check API key is configured
-    if (!API_KEY) {
-        console.error('[API Proxy] YOUTUBE_API_KEY not configured');
+    // Check at least one API key is configured
+    if (API_KEYS.length === 0) {
+        console.error('[API Proxy] No YOUTUBE_API_KEY configured');
         return res.status(500).json({ error: 'Server configuration error' });
     }
 
@@ -76,29 +84,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Invalid endpoint' });
         }
 
-        // Build YouTube API URL
-        const queryParams = new URLSearchParams();
-        for (const [key, value] of Object.entries(params)) {
-            if (typeof value === 'string') {
-                queryParams.append(key, value);
+        // Try rotating through available API keys
+        let lastError = null;
+        let lastStatus = 500;
+
+        for (let i = 0; i < API_KEYS.length; i++) {
+            const currentKey = API_KEYS[i];
+
+            // Build YouTube API URL
+            const queryParams = new URLSearchParams();
+            for (const [key, value] of Object.entries(params)) {
+                if (typeof value === 'string') {
+                    queryParams.append(key, value);
+                }
             }
+            queryParams.append('key', currentKey);
+
+            const youtubeUrl = `${YOUTUBE_API_BASE}/${endpoint}?${queryParams.toString()}`;
+
+            console.log(`[API Proxy] ${endpoint} request from ${ip} using key ${i + 1}`);
+
+            // Fetch from YouTube API with Referer header for API key restrictions
+            const response = await fetch(youtubeUrl, {
+                headers: {
+                    'Referer': 'https://kids.sprinthon.com/',
+                },
+            });
+
+            const data = await response.json();
+
+            // If quota exceeded (403 with specific reason), try next key
+            if (response.status === 403 && data.error?.errors?.some((e: any) => e.reason === 'quotaExceeded')) {
+                console.warn(`[API Proxy] Key ${i + 1} quota exceeded, trying next key...`);
+                continue;
+            }
+
+            // Otherwise return the response (success or non-quota error)
+            return res.status(response.status).json(data);
         }
-        queryParams.append('key', API_KEY);
 
-        const youtubeUrl = `${YOUTUBE_API_BASE}/${endpoint}?${queryParams.toString()}`;
-
-        console.log(`[API Proxy] ${endpoint} request from ${ip}`);
-
-        // Fetch from YouTube API with Referer header for API key restrictions
-        const response = await fetch(youtubeUrl, {
-            headers: {
-                'Referer': 'https://kids.sprinthon.com/',
-            },
+        // If we get here, all keys failed (likely quota)
+        res.status(403).json({
+            error: 'Quota Exceeded',
+            message: 'All API keys have exhausted their daily quota.'
         });
-        const data = await response.json();
-
-        // Forward the response
-        res.status(response.status).json(data);
 
     } catch (error) {
         console.error('[API Proxy] Error:', error);

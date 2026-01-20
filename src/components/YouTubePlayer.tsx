@@ -253,11 +253,12 @@ export function YouTubePlayer({
 
               if (event.data === window.YT.PlayerState.PLAYING) {
                 setIsPlaying(true);
-                setHasUserInteracted(true);
                 onPlay?.();
-                // Lock orientation on first play
-                if (isMobile && hasUserInteracted) {
-                  lockOrientation();
+                // On mobile, force fullscreen + landscape when video plays
+                if (isMobile && !hasUserInteracted) {
+                  console.log('[YouTube] Video started - forcing fullscreen + landscape');
+                  setHasUserInteracted(true);
+                  enterFullscreen().then(() => lockOrientation());
                 }
               } else if (event.data === window.YT.PlayerState.PAUSED) {
                 setIsPlaying(false);
