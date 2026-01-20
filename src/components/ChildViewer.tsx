@@ -37,6 +37,7 @@ export function ChildViewer() {
   const [showComplete, setShowComplete] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('grid');
+  const [showStreamingControls, setShowStreamingControls] = useState(false);
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const parentTapCountRef = useRef(0);
@@ -58,6 +59,38 @@ export function ChildViewer() {
       parentTapCountRef.current = 0;
     }, PARENT_TRIGGER_TIMEOUT);
   }, [setMode]);
+
+  // Handle Escape key and Browser Back Button
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isWatching) {
+        setIsWatching(false);
+      }
+    };
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (isWatching) {
+        // Prevent default browser back and just close player
+        e.preventDefault();
+        setIsWatching(false);
+        // Push state back so the next back button works as expected
+        window.history.pushState({ watching: false }, '');
+      }
+    };
+
+    if (isWatching) {
+      // Add a state to history when starting to watch
+      window.history.pushState({ watching: true }, '');
+      window.addEventListener('popstate', handlePopState);
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isWatching]);
 
   useEffect(() => {
     return () => {
@@ -168,27 +201,45 @@ export function ChildViewer() {
 
   if (isWatching && currentVideo) {
     return (
-      <div className="h-screen bg-black flex flex-col overflow-hidden">
+      <div
+        className="h-screen bg-black flex flex-col overflow-hidden relative group"
+        onMouseEnter={() => setShowStreamingControls(true)}
+        onMouseLeave={() => setShowStreamingControls(false)}
+        onClick={() => setShowStreamingControls(!showStreamingControls)}
+      >
         <YouTubePlayer
           videoId={currentVideo.video_id}
           onEnded={handleVideoEnd}
           autoplay
+          showControls={showStreamingControls}
+          videoBlob={currentVideo.video_blob}
         />
 
-        <div className="fixed bottom-8 inset-x-8 z-50 flex items-center justify-between">
-          <button
-            onClick={() => setIsQueueOpen(true)}
-            className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-colors shadow-lg"
-          >
-            <List className="w-7 h-7 text-white" />
-          </button>
+        <div className={`fixed inset-0 pointer-events-none transition-all duration-500 z-50 ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`}>
+          <div className="absolute top-8 left-8 pointer-events-auto">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsWatching(false);
+              }}
+              className="px-6 py-3 rounded-full bg-white/10 backdrop-blur-md text-white font-bold hover:bg-white/20 transition-all shadow-lg border border-white/10 flex items-center gap-2 group/btn active:scale-95"
+            >
+              <ChevronLeft className="w-5 h-5 group-hover/btn:-translate-x-1 transition-transform" />
+              Back to Browse
+            </button>
+          </div>
 
-          <button
-            onClick={() => setIsWatching(false)}
-            className="px-8 py-4 rounded-full bg-white/20 backdrop-blur-md text-white font-bold hover:bg-white/30 transition-colors shadow-lg border border-white/20"
-          >
-            Back to Browse
-          </button>
+          <div className="absolute bottom-8 left-8 pointer-events-auto">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsQueueOpen(true);
+              }}
+              className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all shadow-lg border border-white/10 active:scale-95"
+            >
+              <List className="w-7 h-7 text-white" />
+            </button>
+          </div>
         </div>
 
         <QueueDrawer

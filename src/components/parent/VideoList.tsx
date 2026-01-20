@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Trash2, Loader2, Video, Play, X, Sparkles, CheckSquare, Square } from 'lucide-react';
+import { Trash2, Loader2, Video, Play, X, Sparkles, CheckSquare, Square, Download, DownloadCloud, CheckCircle2 } from 'lucide-react';
 import { getVideos, deleteVideo } from '../../lib/api/videos';
 import { getPlaylists, addVideoToPlaylist } from '../../lib/api/playlists';
 import type { ApprovedVideo, Playlist } from '../../lib/database.types';
-import { getVideoThumbnail, getEmbedUrl } from '../../lib/youtube';
+import { getVideoThumbnail } from '../../lib/youtube';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
+import { downloadThumbnail, downloadVideo, removeOfflineData } from '../../lib/offline';
+import { YouTubePlayer } from '../YouTubePlayer';
 
 interface VideoListProps {
   onRefresh?: () => void;
@@ -23,6 +25,7 @@ export function VideoList({ onRefresh }: VideoListProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [addingToPlaylist, setAddingToPlaylist] = useState<string | null>(null);
+  const [downloadingVideo, setDownloadingVideo] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApprovedVideo | null>(null);
   const [playingVideo, setPlayingVideo] = useState<ApprovedVideo | null>(null);
 
@@ -64,14 +67,34 @@ export function VideoList({ onRefresh }: VideoListProps) {
     }
   }, [deleteTarget, onRefresh]);
 
+  const handleDownload = useCallback(async (video: ApprovedVideo) => {
+    setDownloadingVideo(video.id);
+    try {
+      await downloadThumbnail(video);
+      await downloadVideo(video);
+      await loadData();
+    } catch (err) {
+      console.error('Error downloading video:', err);
+    } finally {
+      setDownloadingVideo(null);
+    }
+  }, [loadData]);
+
+  const handleRemoveOffline = useCallback(async (video: ApprovedVideo) => {
+    try {
+      await removeOfflineData(video);
+      await loadData();
+    } catch (err) {
+      console.error('Error removing offline data:', err);
+    }
+  }, [loadData]);
+
   const handleCleanup = useCallback(async () => {
     const privateVideos = videos.filter(isPrivateVideo);
     if (privateVideos.length === 0) {
       alert('No private/deleted videos found!');
       return;
     }
-
-    // Select all private videos and show bulk delete modal
     setSelectedIds(new Set(privateVideos.map(v => v.id)));
     setIsSelectMode(true);
     setShowBulkDeleteModal(true);
@@ -79,26 +102,18 @@ export function VideoList({ onRefresh }: VideoListProps) {
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
-
     const count = selectedIds.size;
     setIsDeleting(true);
     setShowBulkDeleteModal(false);
-
     try {
       const idsToDelete = Array.from(selectedIds);
-      console.log('Deleting videos:', idsToDelete);
-
       for (const id of idsToDelete) {
         await deleteVideo(id);
-        console.log('Deleted:', id);
       }
-
       setVideos((prev) => prev.filter((v) => !selectedIds.has(v.id)));
       setSelectedIds(new Set());
       setIsSelectMode(false);
       onRefresh?.();
-
-      // Show success toast
       alert(`✅ Successfully deleted ${count} video${count > 1 ? 's' : ''}!`);
     } catch (err) {
       console.error('Error deleting videos:', err);
@@ -162,7 +177,6 @@ export function VideoList({ onRefresh }: VideoListProps) {
 
   return (
     <>
-      {/* Toolbar */}
       <div className="mb-4 flex flex-wrap gap-2">
         <button
           onClick={() => {
@@ -208,7 +222,6 @@ export function VideoList({ onRefresh }: VideoListProps) {
         )}
       </div>
 
-      {/* Private videos warning */}
       {privateCount > 0 && !isSelectMode && (
         <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
           <div className="flex items-center gap-2 text-amber-800">
@@ -238,7 +251,6 @@ export function VideoList({ onRefresh }: VideoListProps) {
                 isSelected ? 'border-sky-500 ring-2 ring-sky-200' : 'border-gray-100'
                 }`}
             >
-              {/* Selection checkbox */}
               {isSelectMode && (
                 <button
                   onClick={() => toggleSelect(video.id)}
@@ -263,13 +275,18 @@ export function VideoList({ onRefresh }: VideoListProps) {
                 }}
               >
                 <img
-                  src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
+                  src={video.thumbnail_blob ? URL.createObjectURL(video.thumbnail_blob) : (video.thumbnail_url || getVideoThumbnail(video.video_id))}
                   alt={video.title}
                   className={`w-full h-full object-cover ${isPrivate ? 'opacity-50' : ''}`}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23eee" width="100" height="100"/><text x="50" y="50" text-anchor="middle" dy=".3em" fill="%23999">No Image</text></svg>';
-                  }}
                 />
+
+                {video.is_offline && (
+                  <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span className="text-[10px] font-bold">OFFLINE</span>
+                  </div>
+                )}
+
                 {video.duration && (
                   <span className="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
                     {video.duration}
@@ -282,7 +299,6 @@ export function VideoList({ onRefresh }: VideoListProps) {
                     </span>
                   </div>
                 )}
-                {/* Play overlay */}
                 {!isPrivate && !isSelectMode && (
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                     <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center">
@@ -311,7 +327,7 @@ export function VideoList({ onRefresh }: VideoListProps) {
                           disabled={addingToPlaylist === video.video_id}
                           className="w-full text-sm py-2 px-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white"
                         >
-                          <option value="">Add to playlist...</option>
+                          <option value="">Playlist...</option>
                           {playlists.map((playlist) => (
                             <option key={playlist.id} value={playlist.id}>
                               {playlist.name}
@@ -324,10 +340,27 @@ export function VideoList({ onRefresh }: VideoListProps) {
                       </div>
                     )}
 
+                    {!isPrivate && (
+                      <button
+                        onClick={() => video.is_offline ? handleRemoveOffline(video) : handleDownload(video)}
+                        disabled={downloadingVideo === video.id}
+                        className={`p-2 rounded-lg transition-colors ${video.is_offline
+                          ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                          : 'text-sky-600 bg-sky-50 hover:bg-sky-100'}`}
+                      >
+                        {downloadingVideo === video.id ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : video.is_offline ? (
+                          <DownloadCloud className="w-5 h-5" />
+                        ) : (
+                          <Download className="w-5 h-5" />
+                        )}
+                      </button>
+                    )}
+
                     <button
                       onClick={() => setDeleteTarget(video)}
                       className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Delete video"
                     >
                       <Trash2 className="w-5 h-5" />
                     </button>
@@ -339,34 +372,26 @@ export function VideoList({ onRefresh }: VideoListProps) {
         })}
       </div>
 
-      {/* Video Player Modal */}
       {playingVideo && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
           <button
             onClick={() => setPlayingVideo(null)}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors z-[60]"
           >
             <X className="w-6 h-6 text-white" />
           </button>
 
-          <div className="w-full max-w-4xl">
-            <div className="aspect-video bg-black rounded-lg overflow-hidden">
-              <iframe
-                src={getEmbedUrl(playingVideo.video_id)}
-                title={playingVideo.title}
-                className="w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+          <div className="w-full max-w-4xl max-h-screen overflow-hidden flex flex-col">
+            <div className="aspect-video bg-black rounded-lg overflow-hidden relative">
+              <YouTubePlayer videoId={playingVideo.video_id} autoplay={true} />
             </div>
-            <h3 className="text-white text-lg font-medium mt-4 text-center">
+            <h3 className="text-white text-lg font-medium mt-4 text-center px-4">
               {playingVideo.title}
             </h3>
           </div>
         </div>
       )}
 
-      {/* Single delete modal */}
       <DeleteConfirmModal
         isOpen={!!deleteTarget}
         title="Delete Video"
@@ -375,7 +400,6 @@ export function VideoList({ onRefresh }: VideoListProps) {
         onCancel={() => setDeleteTarget(null)}
       />
 
-      {/* Bulk delete modal */}
       <DeleteConfirmModal
         isOpen={showBulkDeleteModal}
         title="Delete Selected Videos"

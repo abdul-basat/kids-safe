@@ -29,6 +29,9 @@ export interface DBVideo {
   thumbnail_url: string | null;
   duration: string | null;
   created_at: string;
+  video_blob?: Blob;
+  thumbnail_blob?: Blob;
+  is_offline?: boolean;
 }
 
 export interface DBPlaylist {
