@@ -14,6 +14,7 @@ interface YouTubePlayerProps {
   onEnded?: () => void;
   onPlay?: () => void;
   onPause?: () => void;
+  onBack?: () => void;
   autoplay?: boolean;
   showControls?: boolean;
   videoBlob?: Blob; // Added for offline support
@@ -46,11 +47,13 @@ export function YouTubePlayer({
   onEnded,
   onPlay,
   onPause,
+  onBack,
   autoplay = false,
   showControls: externalShowControls,
   videoBlob,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YT.Player | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -62,9 +65,46 @@ export function YouTubePlayer({
   const [isDragging, setIsDragging] = useState(false);
   const [isOnlineStatus, setIsOnlineStatus] = useState(isOnline());
   const [localBlobUrl, setLocalBlobUrl] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
   const controlsTimeoutRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
+  const loadTimeoutRef = useRef<number | null>(null);
+
+  // Detect mobile devices
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  const lockOrientation = useCallback(async () => {
+    try {
+      if (screen.orientation && 'lock' in screen.orientation) {
+        // @ts-ignore
+        await screen.orientation.lock('landscape').catch(() => {
+          console.log('[Orientation] Lock failed - requires user interaction or fullscreen');
+        });
+      }
+    } catch (err) {
+      console.log('[Orientation] API not supported:', err);
+    }
+  }, []);
+
+  const enterFullscreen = useCallback(async () => {
+    if (!wrapperRef.current) return;
+    try {
+      if (wrapperRef.current.requestFullscreen) {
+        await wrapperRef.current.requestFullscreen();
+      } else if ((wrapperRef.current as any).webkitRequestFullscreen) {
+        await (wrapperRef.current as any).webkitRequestFullscreen();
+      } else if ((wrapperRef.current as any).msRequestFullscreen) {
+        await (wrapperRef.current as any).msRequestFullscreen();
+      }
+      // Lock orientation after entering fullscreen for better compatibility
+      await lockOrientation();
+    } catch (err) {
+      console.warn('Fullscreen entry failed:', err);
+    }
+  }, [lockOrientation]);
 
   // Sync video blob to local URL
   useEffect(() => {
@@ -83,10 +123,7 @@ export function YouTubePlayer({
   const checkOrientation = useCallback(() => {
     const isLand = window.innerWidth > window.innerHeight;
     setIsLandscape(isLand);
-    if (!isLand && playerRef.current && isPlaying) {
-      playerRef.current.pauseVideo();
-    }
-  }, [isPlaying]);
+  }, []);
 
   useEffect(() => {
     const handleStatusChange = () => setIsOnlineStatus(isOnline());
@@ -122,11 +159,15 @@ export function YouTubePlayer({
     checkOrientation();
     window.addEventListener('resize', checkOrientation);
     window.addEventListener('orientationchange', checkOrientation);
+
+    // Initial lock attempt
+    lockOrientation();
+
     return () => {
       window.removeEventListener('resize', checkOrientation);
       window.removeEventListener('orientationchange', checkOrientation);
     };
-  }, [checkOrientation]);
+  }, [checkOrientation, lockOrientation]);
 
   useEffect(() => {
     let mounted = true;
@@ -134,65 +175,133 @@ export function YouTubePlayer({
     async function initPlayer() {
       if (!isOnlineStatus) return;
 
-      await loadYouTubeAPI();
-      if (!mounted || !containerRef.current) return;
+      console.log(`[YouTube] Initializing player for ${videoId}, mobile: ${isMobile}, autoplay: ${autoplay}`);
 
-      if (playerRef.current) {
-        playerRef.current.destroy();
-      }
+      setLoadError(false);
+      setIsReady(false);
 
-      playerRef.current = new window.YT.Player(containerRef.current, {
-        videoId,
-        host: 'https://www.youtube-nocookie.com',
-        playerVars: {
-          autoplay: autoplay ? 1 : 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3,
-          modestbranding: 1,
-          playsinline: 1,
-          rel: 0,
-          origin: window.location.origin,
-        },
-        events: {
-          onReady: () => {
-            if (mounted) {
-              setIsReady(true);
-              if (playerRef.current) {
-                setDuration(playerRef.current.getDuration());
+      if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+
+      // Longer timeout for mobile
+      const timeout = isMobile ? 45000 : 30000;
+      loadTimeoutRef.current = window.setTimeout(() => {
+        if (mounted && !isReady) {
+          console.error(`[YouTube] Player timed out after ${timeout}ms`);
+          setLoadError(true);
+        }
+      }, timeout);
+
+      try {
+        console.log('[YouTube] Loading YouTube API...');
+        await loadYouTubeAPI();
+
+        if (!mounted || !containerRef.current) {
+          console.log('[YouTube] Mount check failed');
+          return;
+        }
+
+        if (playerRef.current) {
+          try {
+            playerRef.current.destroy();
+          } catch (e) { }
+        }
+
+        console.log('[YouTube] Creating player instance...');
+
+        playerRef.current = new window.YT.Player(containerRef.current, {
+          videoId,
+          // Use regular youtube.com for better mobile compatibility
+          host: 'https://www.youtube.com',
+          playerVars: {
+            // CRITICAL: Disable autoplay on mobile to prevent timeout
+            autoplay: (isMobile ? 0 : (autoplay ? 1 : 0)),
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            iv_load_policy: 3,
+            modestbranding: 1,
+            playsinline: 1,
+            rel: 0,
+            origin: window.location.origin,
+            enablejsapi: 1,
+          },
+          events: {
+            onReady: () => {
+              if (mounted) {
+                console.log('[YouTube] Player ready!');
+                if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+                setIsReady(true);
+                setLoadError(false);
+                if (playerRef.current) {
+                  setDuration(playerRef.current.getDuration());
+                  // On desktop with autoplay, start playing
+                  if (!isMobile && autoplay) {
+                    try {
+                      playerRef.current.playVideo();
+                    } catch (e) {
+                      console.log('[YouTube] Autoplay blocked:', e);
+                    }
+                  }
+                }
+              }
+            },
+            onStateChange: (event: YT.OnStateChangeEvent) => {
+              if (!mounted) return;
+              console.log('[YouTube] State change:', event.data);
+
+              if (event.data === window.YT.PlayerState.PLAYING) {
+                setIsPlaying(true);
+                setHasUserInteracted(true);
+                onPlay?.();
+                // Lock orientation on first play
+                if (isMobile && hasUserInteracted) {
+                  lockOrientation();
+                }
+              } else if (event.data === window.YT.PlayerState.PAUSED) {
+                setIsPlaying(false);
+                onPause?.();
+              } else if (event.data === window.YT.PlayerState.ENDED) {
+                setIsPlaying(false);
+                onEnded?.();
+              }
+            },
+            onError: (event: any) => {
+              console.error('[YouTube] Player error:', event.data);
+              if (mounted) {
+                setLoadError(true);
+                if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
               }
             }
           },
-          onStateChange: (event: YT.OnStateChangeEvent) => {
-            if (!mounted) return;
-            if (event.data === window.YT.PlayerState.PLAYING) {
-              setIsPlaying(true);
-              onPlay?.();
-            } else if (event.data === window.YT.PlayerState.PAUSED) {
-              setIsPlaying(false);
-              onPause?.();
-            } else if (event.data === window.YT.PlayerState.ENDED) {
-              setIsPlaying(false);
-              onEnded?.();
-            }
-          },
-        },
-      });
+        });
+      } catch (err) {
+        console.error('[YouTube] Failed to init player:', err);
+        if (mounted) setLoadError(true);
+      }
     }
 
     initPlayer();
 
     return () => {
       mounted = false;
+      if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
       if (playerRef.current) {
-        playerRef.current.destroy();
+        try {
+          playerRef.current.destroy();
+        } catch (e) { }
         playerRef.current = null;
       }
     };
-  }, [videoId, autoplay, onEnded, onPlay, onPause, isOnlineStatus]);
+  }, [videoId, autoplay, onEnded, onPlay, onPause, isOnlineStatus, retryCount, isMobile, lockOrientation, hasUserInteracted]);
 
-  const togglePlay = useCallback(() => {
+  const togglePlay = useCallback(async () => {
+    // On FIRST play on mobile, try fullscreen to enable orientation lock
+    if (!isPlaying && isMobile && !hasUserInteracted) {
+      console.log('[Player] First play on mobile, attempting fullscreen...');
+      await enterFullscreen();
+      setHasUserInteracted(true);
+    }
+
     if (!isOnlineStatus && localBlobUrl) {
       const video = document.getElementById('local-video') as HTMLVideoElement;
       if (video) {
@@ -203,13 +312,19 @@ export function YouTubePlayer({
       return;
     }
 
-    if (!playerRef.current || !isReady) return;
+    if (!playerRef.current || !isReady) {
+      console.log('[Player] Cannot play - player not ready');
+      return;
+    }
+
     if (isPlaying) {
+      console.log('[Player] Pausing...');
       playerRef.current.pauseVideo();
     } else {
+      console.log('[Player] Playing...');
       playerRef.current.playVideo();
     }
-  }, [isReady, isPlaying, isOnlineStatus, localBlobUrl]);
+  }, [isReady, isPlaying, isOnlineStatus, localBlobUrl, enterFullscreen, isMobile, hasUserInteracted]);
 
   const toggleMute = useCallback(() => {
     if (!isOnlineStatus && localBlobUrl) {
@@ -269,6 +384,7 @@ export function YouTubePlayer({
   }, []);
 
   const formatTime = (seconds: number) => {
+    if (isNaN(seconds)) return "00:00";
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
@@ -278,9 +394,25 @@ export function YouTubePlayer({
       .join(":");
   };
 
-  if (!isLandscape) {
+  const BackButton = ({ className = "" }: { className?: string }) => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onBack?.();
+      }}
+      className={`px-6 py-3 rounded-full bg-white/10 backdrop-blur-md text-white font-bold hover:bg-white/20 transition-all shadow-lg border border-white/10 flex items-center gap-2 group/btn active:scale-95 pointer-events-auto ${className}`}
+    >
+      <RotateCcw className="w-5 h-5 -scale-x-100 group-hover/btn:-translate-x-1 transition-transform" />
+      Back to Browse
+    </button>
+  );
+
+  if (!isLandscape && !isReady && !loadError) {
     return (
       <div className="fixed inset-0 bg-gray-900 flex flex-col items-center justify-center text-white z-50">
+        <div className="absolute top-8 left-8">
+          <BackButton />
+        </div>
         <RotateCcw className="w-20 h-20 mb-6 animate-spin-slow" />
         <h2 className="text-2xl font-bold mb-2">Rotate Your Device</h2>
         <p className="text-gray-400 text-center px-8">
@@ -292,16 +424,35 @@ export function YouTubePlayer({
 
   return (
     <div
+      ref={wrapperRef}
       className="absolute inset-0 bg-black overflow-hidden"
       onClick={handleContainerClick}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {isOnlineStatus ? (
+      {/* Stable container for YouTube to prevent removeChild errors during unmounting/re-rendering */}
+      <div
+        className={`w-full h-full pointer-events-none ${(isOnlineStatus && !loadError) ? 'block' : 'hidden'}`}
+      >
         <div
           ref={containerRef}
-          className="w-full h-full pointer-events-none"
+          className="w-full h-full"
         />
-      ) : localBlobUrl ? (
+      </div>
+
+      {!isOnlineStatus && !localBlobUrl && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-gray-900 px-8 text-center">
+          <div className="absolute top-8 left-8">
+            <BackButton />
+          </div>
+          <WifiOff className="w-20 h-20 text-gray-600 mb-6" />
+          <h2 className="text-2xl font-bold mb-2">Offline</h2>
+          <p className="text-gray-400">
+            This video is not available offline. Connect to Wi-Fi to watch more.
+          </p>
+        </div>
+      )}
+
+      {!isOnlineStatus && localBlobUrl && (
         <video
           id="local-video"
           src={localBlobUrl}
@@ -319,19 +470,13 @@ export function YouTubePlayer({
           }}
           playsInline
         />
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-gray-900 px-8 text-center">
-          <WifiOff className="w-20 h-20 text-gray-600 mb-6" />
-          <h2 className="text-2xl font-bold mb-2">Offline</h2>
-          <p className="text-gray-400">
-            This video is not available offline. Connect to Wi-Fi to watch more.
-          </p>
-        </div>
       )}
 
       {actualShowControls && (isOnlineStatus ? isReady : !!localBlobUrl) && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 flex flex-col justify-between p-8 pointer-events-none">
-          <div />
+          <div className="pointer-events-auto">
+            <BackButton />
+          </div>
 
           <div className="flex flex-col gap-6 pointer-events-auto">
             <div className="flex items-center gap-4 group">
@@ -339,7 +484,7 @@ export function YouTubePlayer({
               <input
                 type="range"
                 min={0}
-                max={duration}
+                max={duration || 0}
                 value={currentTime}
                 onMouseDown={() => setIsDragging(true)}
                 onTouchStart={() => setIsDragging(true)}
@@ -384,11 +529,39 @@ export function YouTubePlayer({
         </div>
       )}
 
-      {isOnlineStatus && !isReady && (
+      {isOnlineStatus && !isReady && !loadError && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+          <div className="absolute top-8 left-8">
+            <BackButton />
+          </div>
           <div className="flex flex-col items-center gap-4">
             <div className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full animate-spin" />
             <span className="text-white font-medium">Loading safe video...</span>
+          </div>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-40">
+          <div className="absolute top-8 left-8">
+            <BackButton />
+          </div>
+          <div className="flex flex-col items-center gap-6 px-8 text-center max-w-md">
+            <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center">
+              <RotateCcw className="w-10 h-10 text-red-500" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-white mb-2">Playback Error</h2>
+              <p className="text-gray-400">
+                We're having trouble loading this video. This can happen with slow connections or restricted content.
+              </p>
+            </div>
+            <button
+              onClick={() => setRetryCount(prev => prev + 1)}
+              className="px-8 py-3 bg-white text-gray-900 font-bold rounded-2xl hover:bg-gray-100 transition-colors active:scale-95"
+            >
+              Try Again
+            </button>
           </div>
         </div>
       )}

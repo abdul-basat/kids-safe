@@ -170,6 +170,12 @@ export function AddContentModal({ isOpen, onClose, onSuccess }: AddContentModalP
           const ytPlaylist = channelPlaylists[i];
           setProgress(`Importing ${i + 1}/${channelPlaylists.length}: ${ytPlaylist.title}...`);
 
+          // Add delay between requests to avoid rate limiting (except first)
+          if (i > 0) {
+            console.log('[Import] Waiting 1s to avoid rate limit...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
           // Fetch videos from this YouTube playlist
           const videos = await fetchPlaylistVideos(ytPlaylist.playlistId);
           if (videos.length === 0) continue;

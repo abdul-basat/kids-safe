@@ -60,11 +60,23 @@ export function ChildViewer() {
     }, PARENT_TRIGGER_TIMEOUT);
   }, [setMode]);
 
+  const handleBackToBrowse = useCallback(() => {
+    setIsWatching(false);
+  }, []);
+
   // Handle Escape key and Browser Back Button
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isWatching) {
-        setIsWatching(false);
+      if (e.key === 'Escape') {
+        if (isQueueOpen) {
+          setIsQueueOpen(false);
+          e.preventDefault();
+          e.stopPropagation();
+        } else if (isWatching) {
+          handleBackToBrowse();
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }
     };
 
@@ -72,7 +84,7 @@ export function ChildViewer() {
       if (isWatching) {
         // Prevent default browser back and just close player
         e.preventDefault();
-        setIsWatching(false);
+        handleBackToBrowse();
         // Push state back so the next back button works as expected
         window.history.pushState({ watching: false }, '');
       }
@@ -84,13 +96,14 @@ export function ChildViewer() {
       window.addEventListener('popstate', handlePopState);
     }
 
-    window.addEventListener('keydown', handleKeyDown);
+    // Use capture: true to intercept before iframe focus if possible
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [isWatching]);
+  }, [isWatching, isQueueOpen, handleBackToBrowse]);
 
   useEffect(() => {
     return () => {
@@ -127,10 +140,10 @@ export function ChildViewer() {
     if (hasNextVideo) {
       nextVideo();
     } else {
-      setIsWatching(false);
+      handleBackToBrowse();
       setShowComplete(true);
     }
-  }, [hasNextVideo, nextVideo]);
+  }, [hasNextVideo, nextVideo, handleBackToBrowse]);
 
   const handlePlayVideo = useCallback((index?: number) => {
     if (index !== undefined) {
@@ -210,25 +223,13 @@ export function ChildViewer() {
         <YouTubePlayer
           videoId={currentVideo.video_id}
           onEnded={handleVideoEnd}
+          onBack={handleBackToBrowse}
           autoplay
           showControls={showStreamingControls}
           videoBlob={currentVideo.video_blob}
         />
 
         <div className={`fixed inset-0 pointer-events-none transition-all duration-500 z-50 ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`}>
-          <div className="absolute top-8 left-8 pointer-events-auto">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsWatching(false);
-              }}
-              className="px-6 py-3 rounded-full bg-white/10 backdrop-blur-md text-white font-bold hover:bg-white/20 transition-all shadow-lg border border-white/10 flex items-center gap-2 group/btn active:scale-95"
-            >
-              <ChevronLeft className="w-5 h-5 group-hover/btn:-translate-x-1 transition-transform" />
-              Back to Browse
-            </button>
-          </div>
-
           <div className="absolute bottom-8 left-8 pointer-events-auto">
             <button
               onClick={(e) => {
