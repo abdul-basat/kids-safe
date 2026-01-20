@@ -229,18 +229,55 @@ export function ChildViewer() {
           videoBlob={currentVideo.video_blob}
         />
 
-        <div className={`fixed inset-0 pointer-events-none transition-all duration-500 z-50 ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`}>
-          <div className="absolute bottom-8 left-8 pointer-events-auto">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsQueueOpen(true);
-              }}
-              className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all shadow-lg border border-white/10 active:scale-95"
-            >
-              <List className="w-7 h-7 text-white" />
-            </button>
-          </div>
+        <div className={`fixed inset-0 pointer-events-none transition-all duration-500 z-40 ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`}>
+          {/* Top Gradient for visibility */}
+          <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
+
+          {/* Bottom Gradient for shelf */}
+          <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+
+          {/* Up Next Shelf Overlay */}
+          {currentPlaylist.videos.length > 1 && (
+            <div className="absolute bottom-0 inset-x-0 p-8 pt-0 pointer-events-auto flex flex-col gap-4">
+              <h3 className="text-sm font-black text-sky-400 uppercase tracking-widest flex items-center gap-2 px-2">
+                <span className="w-2 h-2 bg-sky-500 rounded-full animate-pulse" />
+                Up Next
+              </h3>
+              <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth mask-horizontal">
+                {currentPlaylist.videos
+                  .slice(currentVideoIndex + 1, currentVideoIndex + 16)
+                  .map((video, idx) => {
+                    const actualIndex = currentVideoIndex + 1 + idx;
+                    return (
+                      <button
+                        key={video.video_id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePlayVideo(actualIndex);
+                        }}
+                        className="flex-shrink-0 w-36 md:w-52 rounded-xl overflow-hidden bg-white/10 backdrop-blur-md border border-white/10 hover:bg-white/20 hover:scale-105 hover:border-sky-400 transition-all group group/card shadow-2xl"
+                      >
+                        <div className="aspect-video relative">
+                          <img
+                            src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
+                            alt={video.title}
+                            className="w-full h-full object-cover opacity-80 group-hover/card:opacity-100 transition-opacity"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity bg-black/20">
+                            <Play className="w-8 h-8 text-white drop-shadow-md" />
+                          </div>
+                        </div>
+                        <div className="p-2">
+                          <p className="text-[10px] md:text-xs font-bold text-white line-clamp-2 text-left leading-tight">
+                            {video.title}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
         </div>
 
         <QueueDrawer
@@ -406,48 +443,6 @@ export function ChildViewer() {
           </div>
         )}
       </div>
-
-      {/* Bottom Up Next Section - No scroll required! */}
-      {currentPlaylist.videos.length > 1 && (
-        <div className="bg-white/40 backdrop-blur-sm border-t border-white/30 p-4 lg:p-6 z-10">
-          <div className="max-w-7xl mx-auto">
-            <h3 className="text-sm font-black text-sky-800 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 bg-sky-500 rounded-full animate-pulse" />
-              Up Next
-            </h3>
-            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide scroll-smooth">
-              {currentPlaylist.videos
-                .slice(currentVideoIndex + 1, currentVideoIndex + 11)
-                .map((video, idx) => {
-                  const actualIndex = currentVideoIndex + 1 + idx;
-                  return (
-                    <button
-                      key={video.video_id}
-                      onClick={() => handlePlayVideo(actualIndex)}
-                      className="flex-shrink-0 w-44 md:w-64 rounded-2xl overflow-hidden bg-white shadow-lg hover:shadow-2xl hover:scale-105 transition-all group border-2 border-transparent hover:border-sky-400"
-                    >
-                      <div className="aspect-video relative">
-                        <img
-                          src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
-                          alt={video.title}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                          <Play className="w-10 h-10 text-white drop-shadow-lg" />
-                        </div>
-                      </div>
-                      <div className="p-3 bg-white">
-                        <p className="text-xs md:text-sm font-bold text-gray-800 line-clamp-2 text-left leading-snug">
-                          {video.title}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      )}
 
       <QueueDrawer
         videos={currentPlaylist.videos}

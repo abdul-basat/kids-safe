@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { RotateCcw, Play, Pause, Volume2, VolumeX, WifiOff } from 'lucide-react';
+import { RotateCcw, Play, Pause, Volume2, VolumeX, WifiOff, Maximize2, Minimize2 } from 'lucide-react';
 import { isOnline } from '../lib/offline';
 
 declare global {
@@ -58,7 +58,6 @@ export function YouTubePlayer({
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(true);
   const [internalShowControls, setInternalShowControls] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -68,6 +67,7 @@ export function YouTubePlayer({
   const [loadError, setLoadError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const controlsTimeoutRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
@@ -106,6 +106,41 @@ export function YouTubePlayer({
     }
   }, [lockOrientation]);
 
+  const exitFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        await (document as any).webkitExitFullscreen();
+      } else if ((document as any).msExitFullscreen) {
+        await (document as any).msExitFullscreen();
+      }
+    } catch (err) {
+      console.warn('Fullscreen exit failed:', err);
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (isFullscreen) {
+      await exitFullscreen();
+    } else {
+      await enterFullscreen();
+    }
+  }, [isFullscreen, enterFullscreen, exitFullscreen]);
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   // Sync video blob to local URL
   useEffect(() => {
     if (videoBlob) {
@@ -120,11 +155,6 @@ export function YouTubePlayer({
   // Use external controls if provided, otherwise fallback to internal logic
   const actualShowControls = externalShowControls !== undefined ? externalShowControls : internalShowControls;
 
-  const checkOrientation = useCallback(() => {
-    const isLand = window.innerWidth > window.innerHeight;
-    setIsLandscape(isLand);
-  }, []);
-
   useEffect(() => {
     const handleStatusChange = () => setIsOnlineStatus(isOnline());
     window.addEventListener('online', handleStatusChange);
@@ -136,11 +166,20 @@ export function YouTubePlayer({
   }, []);
 
   const updateProgress = useCallback(() => {
-    if (isOnlineStatus && playerRef.current && isPlaying && !isDragging) {
-      const current = playerRef.current.getCurrentTime();
-      const total = playerRef.current.getDuration();
-      setCurrentTime(current);
-      if (total !== duration) setDuration(total);
+    try {
+      if (isOnlineStatus && playerRef.current && isPlaying && !isDragging) {
+        // Safety check: ensure iframe is still connected
+        const iframe = playerRef.current.getIframe?.();
+        if (!iframe || !iframe.isConnected) return;
+
+        const current = playerRef.current.getCurrentTime();
+        const total = playerRef.current.getDuration();
+        setCurrentTime(current);
+        if (total !== duration) setDuration(total);
+      }
+    } catch (err) {
+      // Silently ignore postMessage errors during polling
+      console.debug('[YouTube] Progress update skipped:', err);
     }
   }, [isPlaying, isDragging, duration, isOnlineStatus]);
 
@@ -156,18 +195,9 @@ export function YouTubePlayer({
   }, [isPlaying, isDragging, updateProgress, isOnlineStatus]);
 
   useEffect(() => {
-    checkOrientation();
-    window.addEventListener('resize', checkOrientation);
-    window.addEventListener('orientationchange', checkOrientation);
-
-    // Initial lock attempt
+    // Initial lock attempt for fullscreen experiences
     lockOrientation();
-
-    return () => {
-      window.removeEventListener('resize', checkOrientation);
-      window.removeEventListener('orientationchange', checkOrientation);
-    };
-  }, [checkOrientation, lockOrientation]);
+  }, [lockOrientation]);
 
   useEffect(() => {
     let mounted = true;
@@ -254,11 +284,14 @@ export function YouTubePlayer({
               if (event.data === window.YT.PlayerState.PLAYING) {
                 setIsPlaying(true);
                 onPlay?.();
-                // On mobile, force fullscreen + landscape when video plays
-                if (isMobile && !hasUserInteracted) {
-                  console.log('[YouTube] Video started - forcing fullscreen + landscape');
+                // On BOTH mobile and desktop, force fullscreen when video starts playing for the first time
+                if (!hasUserInteracted) {
+                  console.log('[YouTube] Video started - forcing fullscreen');
                   setHasUserInteracted(true);
-                  enterFullscreen().then(() => lockOrientation());
+                  enterFullscreen();
+                  if (isMobile) {
+                    lockOrientation();
+                  }
                 }
               } else if (event.data === window.YT.PlayerState.PAUSED) {
                 setIsPlaying(false);
@@ -295,7 +328,8 @@ export function YouTubePlayer({
         playerRef.current = null;
       }
     };
-  }, [videoId, autoplay, onEnded, onPlay, onPause, isOnlineStatus, retryCount, isMobile, lockOrientation, hasUserInteracted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId, autoplay, onEnded, onPlay, onPause, isOnlineStatus, retryCount, isMobile]);
 
   const togglePlay = useCallback(async () => {
     // On FIRST play on mobile, try fullscreen to enable orientation lock
@@ -410,20 +444,6 @@ export function YouTubePlayer({
     </button>
   );
 
-  if (!isLandscape && !isReady && !loadError) {
-    return (
-      <div className="fixed inset-0 bg-gray-900 flex flex-col items-center justify-center text-white z-50">
-        <div className="absolute top-8 left-8">
-          <BackButton />
-        </div>
-        <RotateCcw className="w-20 h-20 mb-6 animate-spin-slow" />
-        <h2 className="text-2xl font-bold mb-2">Rotate Your Device</h2>
-        <p className="text-gray-400 text-center px-8">
-          Please turn your device sideways to continue watching
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -439,6 +459,16 @@ export function YouTubePlayer({
         <div
           ref={containerRef}
           className="w-full h-full"
+        />
+        {/* Overlay to block YouTube title bar at top - prevents kids from clicking to YouTube */}
+        <div
+          className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-auto z-10"
+          onClick={(e) => e.stopPropagation()}
+        />
+        {/* Overlay to block YouTube logo/watermark at bottom right */}
+        <div
+          className="absolute bottom-0 right-0 w-40 h-16 pointer-events-auto z-10"
+          onClick={(e) => e.stopPropagation()}
         />
       </div>
 
@@ -525,6 +555,22 @@ export function YouTubePlayer({
                   <VolumeX className="w-8 h-8 text-white" />
                 ) : (
                   <Volume2 className="w-8 h-8 text-white" />
+                )}
+              </button>
+
+              {/* Fullscreen Toggle */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFullscreen();
+                }}
+                className="absolute left-0 w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-all border border-white/10"
+                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="w-8 h-8 text-white" />
+                ) : (
+                  <Maximize2 className="w-8 h-8 text-white" />
                 )}
               </button>
             </div>

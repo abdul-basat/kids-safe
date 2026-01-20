@@ -33,6 +33,7 @@ export function VideoList({ onRefresh }: VideoListProps) {
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [showStreamingControls, setShowStreamingControls] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -373,19 +374,33 @@ export function VideoList({ onRefresh }: VideoListProps) {
       </div>
 
       {playingVideo && (
-        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black z-50 flex flex-col group"
+          onMouseEnter={() => setShowStreamingControls(true)}
+          onMouseLeave={() => setShowStreamingControls(false)}
+          onClick={() => setShowStreamingControls(!showStreamingControls)}
+        >
+          {/* Top Gradient for visibility */}
+          <div className={`absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`} />
+
           <button
             onClick={() => setPlayingVideo(null)}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors z-[60]"
+            className={`absolute top-6 left-6 p-4 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 transition-all z-[60] border border-white/10 flex items-center gap-2 group/back ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`}
           >
             <X className="w-6 h-6 text-white" />
+            <span className="text-white font-bold pr-2">Close Player</span>
           </button>
 
-          <div className="w-full max-w-4xl max-h-screen overflow-hidden flex flex-col">
-            <div className="aspect-video bg-black rounded-lg overflow-hidden relative">
-              <YouTubePlayer videoId={playingVideo.video_id} autoplay={true} />
-            </div>
-            <h3 className="text-white text-lg font-medium mt-4 text-center px-4">
+          <div className="flex-1 bg-black">
+            <YouTubePlayer
+              videoId={playingVideo.video_id}
+              autoplay={true}
+              showControls={showStreamingControls}
+              onBack={() => setPlayingVideo(null)}
+            />
+          </div>
+
+          <div className={`absolute bottom-8 left-0 right-0 text-center pointer-events-none transition-opacity duration-300 ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`}>
+            <h3 className="text-white text-xl font-bold px-4 drop-shadow-lg">
               {playingVideo.title}
             </h3>
           </div>

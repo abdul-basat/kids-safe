@@ -181,6 +181,11 @@ export async function fetchChannelInfo(
 }
 
 export async function fetchPlaylistInfo(playlistId: string): Promise<PlaylistInfo> {
+    // Check cache first
+    const cacheKey = `playlist:${playlistId}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached) return cached;
+
     const url = buildApiUrl('playlists', { part: 'snippet,contentDetails', id: playlistId });
     const response = await fetchWithRetry(url);
 
@@ -196,16 +201,25 @@ export async function fetchPlaylistInfo(playlistId: string): Promise<PlaylistInf
     }
 
     const playlist = data.items[0];
-    return {
+    const result = {
         playlistId: playlist.id,
         title: playlist.snippet.title,
         thumbnail: playlist.snippet.thumbnails?.medium?.url || playlist.snippet.thumbnails?.default?.url || null,
         channelTitle: playlist.snippet.channelTitle,
         itemCount: playlist.contentDetails.itemCount,
     };
+
+    // Cache the result
+    apiCache.set(cacheKey, result);
+    return result;
 }
 
 export async function fetchPlaylistVideos(playlistId: string, maxResults = 50): Promise<PlaylistItemInfo[]> {
+    // Check cache first (cache key includes maxResults to avoid returning partial results)
+    const cacheKey = `playlistVideos:${playlistId}:${maxResults}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached) return cached;
+
     const videos: PlaylistItemInfo[] = [];
     let nextPageToken: string | undefined;
     let pageCount = 0;
@@ -267,6 +281,8 @@ export async function fetchPlaylistVideos(playlistId: string, maxResults = 50): 
         pageCount++;
     } while (nextPageToken && videos.length < maxResults);
 
+    // Cache the result
+    apiCache.set(cacheKey, videos);
     return videos;
 }
 
@@ -292,6 +308,11 @@ export function extractPlaylistId(url: string): string | null {
 
 // Fetch all playlists from a channel
 export async function fetchChannelPlaylists(channelId: string, maxResults = 50): Promise<PlaylistInfo[]> {
+    // Check cache first
+    const cacheKey = `channelPlaylists:${channelId}:${maxResults}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached) return cached;
+
     const playlists: PlaylistInfo[] = [];
     let nextPageToken: string | undefined;
     let pageCount = 0;
@@ -334,5 +355,7 @@ export async function fetchChannelPlaylists(channelId: string, maxResults = 50):
         pageCount++;
     } while (nextPageToken && playlists.length < maxResults);
 
+    // Cache the result
+    apiCache.set(cacheKey, playlists);
     return playlists;
 }
