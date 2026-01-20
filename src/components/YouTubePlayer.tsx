@@ -234,9 +234,11 @@ export function YouTubePlayer({
                 setLoadError(false);
                 if (playerRef.current) {
                   setDuration(playerRef.current.getDuration());
-                  // On desktop with autoplay, start playing
-                  if (!isMobile && autoplay) {
+                  // Auto-play on both desktop and mobile
+                  // On mobile, the user already tapped to open the player, so this is allowed
+                  if (autoplay) {
                     try {
+                      console.log('[YouTube] Attempting auto-play...');
                       playerRef.current.playVideo();
                     } catch (e) {
                       console.log('[YouTube] Autoplay blocked:', e);

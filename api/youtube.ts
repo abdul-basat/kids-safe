@@ -89,8 +89,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         console.log(`[API Proxy] ${endpoint} request from ${ip}`);
 
-        // Fetch from YouTube API
-        const response = await fetch(youtubeUrl);
+        // Fetch from YouTube API with Referer header for API key restrictions
+        const response = await fetch(youtubeUrl, {
+            headers: {
+                'Referer': 'https://kids.sprinthon.com/',
+            },
+        });
         const data = await response.json();
 
         // Forward the response
