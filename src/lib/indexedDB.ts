@@ -10,6 +10,15 @@ export interface DBSettings {
   daily_limit_minutes: number;
   created_at: string;
   updated_at: string;
+  // Enhanced time management
+  bedtime_hour?: number; // 24-hour format (0-23)
+  wake_time_hour?: number; // 24-hour format (0-23)
+  weekend_multiplier?: number; // Weekend allowance multiplier (default: 1.0)
+  last_viewed_date?: string; // Track daily usage
+  daily_time_used?: number; // Minutes used today
+  session_start_time?: string; // Current session start time
+  // Profile management
+  active_profile_id?: string; // Currently active child profile
 }
 
 export interface DBChannel {
@@ -51,7 +60,28 @@ export interface DBPlaylistVideo {
   created_at: string;
 }
 
-type StoreName = 'settings' | 'channels' | 'videos' | 'playlists' | 'playlistVideos';
+export interface DBChildProfile {
+  id: string;
+  name: string;
+  avatar: string; // Emoji or avatar URL
+  age: number;
+  content_level: 'G' | 'PG' | 'PG-13';
+  daily_limit_minutes: number;
+  bedtime_hour: number; // 24-hour format
+  wake_time_hour: number; // 24-hour format
+  created_at: string;
+  updated_at: string;
+  // Usage tracking
+  daily_time_used: number;
+  last_viewed_date: string;
+  favorite_videos: string[]; // Video IDs
+  watch_history: string[]; // Recent video IDs
+  // Custom settings
+  educational_priority: boolean;
+  blocked_keywords: string[];
+}
+
+type StoreName = 'settings' | 'channels' | 'videos' | 'playlists' | 'playlistVideos' | 'profiles';
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -111,6 +141,12 @@ function openDB(): Promise<IDBDatabase> {
         pvStore.createIndex('playlist_id', 'playlist_id', { unique: false });
         pvStore.createIndex('video_id', 'video_id', { unique: false });
         pvStore.createIndex('playlist_video', ['playlist_id', 'video_id'], { unique: true });
+      }
+
+      // Child Profiles store
+      if (!db.objectStoreNames.contains('profiles')) {
+        const profileStore = db.createObjectStore('profiles', { keyPath: 'id' });
+        profileStore.createIndex('name', 'name', { unique: false });
       }
     };
   });
@@ -270,6 +306,13 @@ export const db = {
   deletePlaylistVideosByPlaylistId: (playlistId: string) => deleteByIndex('playlistVideos', 'playlist_id', playlistId),
   clearPlaylistVideos: (playlistId: string) => deleteByIndex('playlistVideos', 'playlist_id', playlistId),
 
+  // Profiles
+  getProfiles: () => getAll<DBChildProfile>('profiles'),
+  getProfileById: (id: string) => getById<DBChildProfile>('profiles', id),
+  addProfile: (profile: DBChildProfile) => add<DBChildProfile>('profiles', profile),
+  updateProfile: (profile: DBChildProfile) => put<DBChildProfile>('profiles', profile),
+  deleteProfile: (id: string) => deleteById('profiles', id),
+
   // Utility
   clearAll: async () => {
     await clearStore('settings');
@@ -277,5 +320,6 @@ export const db = {
     await clearStore('videos');
     await clearStore('playlists');
     await clearStore('playlistVideos');
+    await clearStore('profiles');
   }
 };

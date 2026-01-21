@@ -3,6 +3,7 @@
 // In production: calls secure Vercel proxy (API key stored server-side)
 
 import { apiCache } from './apiCache';
+import { sanitizeVideoTitle } from './security';
 
 // Check if we're in development or production
 const IS_DEV = import.meta.env.DEV;
@@ -124,7 +125,7 @@ export async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
     const video = data.items[0];
     const result = {
         videoId: video.id,
-        title: video.snippet.title,
+        title: sanitizeVideoTitle(video.snippet.title),
         thumbnail: video.snippet.thumbnails?.medium?.url || video.snippet.thumbnails?.default?.url,
         duration: formatDuration(video.contentDetails.duration),
         channelId: video.snippet.channelId,
@@ -268,7 +269,7 @@ export async function fetchPlaylistVideos(playlistId: string, maxResults = 50): 
 
                 videos.push({
                     videoId: item.snippet.resourceId.videoId,
-                    title: title,
+                    title: sanitizeVideoTitle(title),
                     thumbnail: thumbnail,
                     channelId: item.snippet.videoOwnerChannelId || '',
                     channelTitle: item.snippet.videoOwnerChannelTitle || '',

@@ -68,6 +68,7 @@ export function YouTubePlayer({
   const [retryCount, setRetryCount] = useState(0);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isNearEnd, setIsNearEnd] = useState(false); // Track if video is near end to block end screen
 
   const controlsTimeoutRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
@@ -176,6 +177,13 @@ export function YouTubePlayer({
         const total = playerRef.current.getDuration();
         setCurrentTime(current);
         if (total !== duration) setDuration(total);
+
+        // Detect when video is near end (within 3 seconds) to block YouTube end screen
+        if (total > 0 && total - current <= 3) {
+          setIsNearEnd(true);
+        } else {
+          setIsNearEnd(false);
+        }
       }
     } catch (err) {
       // Silently ignore postMessage errors during polling
@@ -240,8 +248,8 @@ export function YouTubePlayer({
 
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId,
-          // Use regular youtube.com for better mobile compatibility
-          host: 'https://www.youtube.com',
+          // Use youtube-nocookie.com for enhanced privacy mode - reduces tracking and some end screen behaviors
+          host: 'https://www.youtube-nocookie.com',
           playerVars: {
             // CRITICAL: Disable autoplay on mobile to prevent timeout
             autoplay: (isMobile ? 0 : (autoplay ? 1 : 0)),
@@ -470,6 +478,19 @@ export function YouTubePlayer({
           className="absolute bottom-0 right-0 w-40 h-16 pointer-events-auto z-10"
           onClick={(e) => e.stopPropagation()}
         />
+
+        {/* CRITICAL: Full-screen end blocker - appears when video is near end to block YouTube's related videos/end screen */}
+        {isNearEnd && (
+          <div
+            className="absolute inset-0 bg-black/95 pointer-events-auto z-20 flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center">
+              <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-white/80 font-medium">Loading next video...</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {!isOnlineStatus && !localBlobUrl && (

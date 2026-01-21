@@ -5,7 +5,7 @@ import { ParentDashboard } from './components/parent';
 import { Loader2 } from 'lucide-react';
 
 function AppContent() {
-  const { mode, setupPin, enterParentMode, exitParentMode } = useApp();
+  const { mode, setupPin, enterParentMode, exitParentMode, resetPin } = useApp();
 
   if (mode === 'loading') {
     return (
@@ -36,6 +36,7 @@ function AppContent() {
         subtitle="Enter your PIN to access settings"
         onSubmit={enterParentMode}
         onCancel={exitParentMode}
+        onReset={resetPin}
       />
     );
   }

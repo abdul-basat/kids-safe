@@ -13,7 +13,9 @@ import {
 import { useApp } from '../context/AppContext';
 import { YouTubePlayer } from './YouTubePlayer';
 import { QueueDrawer } from './QueueDrawer';
+import { TimeRestrictionOverlay } from './TimeRestrictionOverlay';
 import { getVideoThumbnail } from '../lib/youtube';
+import { isTimeLimitReached, isWithinAllowedHours } from '../lib/timeTracking';
 
 const SWIPE_THRESHOLD = 50;
 const PARENT_TRIGGER_TAPS = 5;
@@ -30,6 +32,7 @@ export function ChildViewer() {
     previousVideo,
     setCurrentVideoIndex,
     setMode,
+    settings,
   } = useApp();
 
   const [isQueueOpen, setIsQueueOpen] = useState(false);
@@ -38,6 +41,7 @@ export function ChildViewer() {
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('grid');
   const [showStreamingControls, setShowStreamingControls] = useState(false);
+  const [showTimeRestriction, setShowTimeRestriction] = useState(false);
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const parentTapCountRef = useRef(0);
@@ -146,12 +150,23 @@ export function ChildViewer() {
   }, [hasNextVideo, nextVideo, handleBackToBrowse]);
 
   const handlePlayVideo = useCallback((index?: number) => {
+    // Check time restrictions before playing
+    if (settings) {
+      const timeLimitReached = isTimeLimitReached(settings);
+      const withinAllowedHours = isWithinAllowedHours(settings);
+      
+      if (timeLimitReached || !withinAllowedHours) {
+        setShowTimeRestriction(true);
+        return;
+      }
+    }
+    
     if (index !== undefined) {
       setCurrentVideoIndex(index);
     }
     setIsWatching(true);
     setShowComplete(false);
-  }, [setCurrentVideoIndex]);
+  }, [setCurrentVideoIndex, settings]);
 
   if (!currentPlaylist || currentPlaylist.videos.length === 0) {
     return (
@@ -290,6 +305,11 @@ export function ChildViewer() {
             setIsQueueOpen(false);
           }}
         />
+        
+        <TimeRestrictionOverlay 
+          isVisible={showTimeRestriction}
+          onDismiss={() => setShowTimeRestriction(false)}
+        />
       </div>
     );
   }
@@ -297,63 +317,70 @@ export function ChildViewer() {
   // GRID VIEW for browsing
   if (viewMode === 'grid') {
     return (
-      <div className="h-screen bg-gradient-to-b from-sky-100 to-sky-200 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 lg:p-6 bg-white/30 backdrop-blur-sm border-b border-white/20">
-          <h1 className="text-2xl lg:text-3xl font-bold text-gray-800 flex items-center gap-2">
-            🎬 Pick a Video!
-          </h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setViewMode('single')}
-              className="p-3 rounded-xl bg-white/60 hover:bg-white/90 transition-all shadow-sm active:scale-95"
-              title="Single view"
-            >
-              <LayoutList className="w-6 h-6 text-gray-700" />
-            </button>
-            <button
-              onClick={handleParentTrigger}
-              className="w-12 h-12 rounded-full bg-white/60 hover:bg-white/90 flex items-center justify-center transition-all shadow-sm active:scale-95"
-              aria-label="Parent access"
-              title="Tap 5 times for parent mode"
-            >
-              <Settings className="w-6 h-6 text-gray-700" />
-            </button>
-          </div>
-        </div>
-
-        {/* Video Grid */}
-        <div className="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-hide">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-            {currentPlaylist.videos.map((video, index) => (
+      <>
+        <div className="h-screen bg-gradient-to-b from-sky-100 to-sky-200 flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 lg:p-6 bg-white/30 backdrop-blur-sm border-b border-white/20">
+            <h1 className="text-2xl lg:text-3xl font-bold text-gray-800 flex items-center gap-2">
+              🎬 Pick a Video!
+            </h1>
+            <div className="flex items-center gap-3">
               <button
-                key={video.video_id}
-                onClick={() => handlePlayVideo(index)}
-                className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl hover:scale-105 transition-all group border-2 border-transparent hover:border-sky-400"
+                onClick={() => setViewMode('single')}
+                className="p-3 rounded-xl bg-white/60 hover:bg-white/90 transition-all shadow-sm active:scale-95"
+                title="Single view"
               >
-                <div className="aspect-video relative">
-                  <img
-                    src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
-                    alt={video.title}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                    <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                      <Play className="w-6 h-6 text-sky-600 ml-1" />
+                <LayoutList className="w-6 h-6 text-gray-700" />
+              </button>
+              <button
+                onClick={handleParentTrigger}
+                className="w-12 h-12 rounded-full bg-white/60 hover:bg-white/90 flex items-center justify-center transition-all shadow-sm active:scale-95"
+                aria-label="Parent access"
+                title="Tap 5 times for parent mode"
+              >
+                <Settings className="w-6 h-6 text-gray-700" />
+              </button>
+            </div>
+          </div>
+
+          {/* Video Grid */}
+          <div className="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-hide">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+              {currentPlaylist.videos.map((video, index) => (
+                <button
+                  key={video.video_id}
+                  onClick={() => handlePlayVideo(index)}
+                  className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl hover:scale-105 transition-all group border-2 border-transparent hover:border-sky-400"
+                >
+                  <div className="aspect-video relative">
+                    <img
+                      src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
+                      alt={video.title}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                        <Play className="w-6 h-6 text-sky-600 ml-1" />
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="p-3">
-                  <h3 className="text-sm font-bold text-gray-800 line-clamp-2 text-left leading-tight">
-                    {video.title}
-                  </h3>
-                </div>
-              </button>
-            ))}
+                  <div className="p-3">
+                    <h3 className="text-sm font-bold text-gray-800 line-clamp-2 text-left leading-tight">
+                      {video.title}
+                    </h3>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+        
+        <TimeRestrictionOverlay 
+          isVisible={showTimeRestriction}
+          onDismiss={() => setShowTimeRestriction(false)}
+        />
+      </>
     );
   }
 
@@ -453,6 +480,11 @@ export function ChildViewer() {
           setCurrentVideoIndex(index);
           setIsQueueOpen(false);
         }}
+      />
+      
+      <TimeRestrictionOverlay 
+        isVisible={showTimeRestriction}
+        onDismiss={() => setShowTimeRestriction(false)}
       />
     </div>
   );

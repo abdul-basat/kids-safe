@@ -1,3 +1,5 @@
+import { isValidVideoId } from './security';
+
 export function extractVideoId(url: string): string | null {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
@@ -6,7 +8,13 @@ export function extractVideoId(url: string): string | null {
 
   for (const pattern of patterns) {
     const match = url.match(pattern);
-    if (match) return match[1];
+    if (match) {
+      const videoId = match[1];
+      // Additional validation to prevent injection
+      if (isValidVideoId(videoId)) {
+        return videoId;
+      }
+    }
   }
 
   return null;
@@ -50,16 +58,26 @@ export function extractChannelId(url: string): { type: 'id' | 'handle' | 'custom
 }
 
 export function getVideoThumbnail(videoId: string, quality: 'default' | 'medium' | 'high' | 'maxres' = 'medium'): string {
+  // Validate video ID to prevent injection attacks
+  if (!isValidVideoId(videoId)) {
+    throw new Error('Invalid video ID format');
+  }
+  
   const qualityMap = {
     default: 'default',
     medium: 'mqdefault',
     high: 'hqdefault',
     maxres: 'maxresdefault',
   };
-  return `https://i.ytimg.com/vi/${videoId}/${qualityMap[quality]}.jpg`;
+  return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/${qualityMap[quality]}.jpg`;
 }
 
 export function getEmbedUrl(videoId: string): string {
+  // Validate video ID to prevent injection attacks
+  if (!isValidVideoId(videoId)) {
+    throw new Error('Invalid video ID format');
+  }
+  
   const params = new URLSearchParams({
     enablejsapi: '1',
     rel: '0',
@@ -70,7 +88,7 @@ export function getEmbedUrl(videoId: string): string {
     disablekb: '0',
     origin: window.location.origin,
   });
-  return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+  return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
 }
 
 export function formatDuration(isoDuration: string): string {

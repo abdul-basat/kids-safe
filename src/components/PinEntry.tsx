@@ -6,6 +6,7 @@ interface PinEntryProps {
   subtitle?: string;
   onSubmit: (pin: string) => Promise<boolean | void>;
   onCancel?: () => void;
+  onReset?: () => Promise<void>; // New prop for PIN reset
   confirmMode?: boolean;
   minLength?: number;
   maxLength?: number;
@@ -16,6 +17,7 @@ export function PinEntry({
   subtitle,
   onSubmit,
   onCancel,
+  onReset,
   confirmMode = false,
   minLength = 4,
   maxLength = 6,
@@ -114,18 +116,24 @@ export function PinEntry({
     }
   }, [currentPin, minLength, confirmMode, isConfirming, pin, confirmPin, onSubmit]);
 
-  const handleRecoverySubmit = (e: React.FormEvent) => {
+  const handleRecoverySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (parseInt(recoveryAnswer) === mathChallenge.a) {
-      // Clear all state to allow re-setting/bypassing
-      setPin('');
-      setConfirmPin('');
-      setIsConfirming(false);
-      setShowRecovery(false);
-      setRecoveryAnswer('');
-      setError('');
-      // Force user to "create" a new PIN by putting them in confirm mode if it was a setup or just clearing error
-      setError('Recovery successful! Please enter your new PIN.');
+      // Successful recovery - trigger PIN reset
+      try {
+        if (onReset) {
+          await onReset();
+        }
+        // Clear local state regardless
+        setPin('');
+        setConfirmPin('');
+        setIsConfirming(false);
+        setShowRecovery(false);
+        setRecoveryAnswer('');
+        setError('');
+      } catch (error) {
+        setError('Failed to reset PIN. Please try again.');
+      }
     } else {
       setError('Incorrect answer. Please try again.');
       setRecoveryAnswer('');

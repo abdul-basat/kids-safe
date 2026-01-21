@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { getSettings, createSettings, hashPin, verifyPin, updatePinHash } from '../lib/api/settings';
 import { getDefaultPlaylistWithVideos } from '../lib/api/playlists';
 import type { Settings, PlaylistWithVideos, ApprovedVideo } from '../lib/database.types';
+import { startSession, endSession, isTimeLimitReached, isWithinAllowedHours } from '../lib/timeTracking';
 
 type AppMode = 'loading' | 'setup' | 'child' | 'parent' | 'pin-entry';
 
@@ -20,6 +21,7 @@ interface AppContextValue extends AppState {
   exitParentMode: () => void;
   setupPin: (pin: string) => Promise<void>;
   changePin: (currentPin: string, newPin: string) => Promise<boolean>;
+  resetPin: () => Promise<void>;
   setCurrentPlaylist: (playlist: PlaylistWithVideos | null) => void;
   setCurrentVideoIndex: (index: number) => void;
   nextVideo: () => void;
@@ -140,6 +142,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   }, [state.settings]);
 
+  const resetPin = useCallback(async () => {
+    // Clear the existing PIN hash to force setup mode
+    if (state.settings?.id) {
+      await updatePinHash(state.settings.id, null);
+      setState((prev) => ({
+        ...prev,
+        settings: prev.settings ? { ...prev.settings, pin_hash: null } : null,
+        mode: 'setup',
+      }));
+    } else {
+      // If no settings exist, create new ones in setup mode
+      setState((prev) => ({
+        ...prev,
+        mode: 'setup',
+      }));
+    }
+  }, [state.settings?.id]);
+
   const setCurrentPlaylist = useCallback((playlist: PlaylistWithVideos | null) => {
     setState((prev) => ({ ...prev, currentPlaylist: playlist, currentVideoIndex: 0 }));
   }, []);
@@ -165,8 +185,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setIsPlaying = useCallback((playing: boolean) => {
+    // Handle session tracking
+    if (playing && !state.isPlaying && state.settings?.id) {
+      // Starting to play - start session
+      startSession(state.settings.id);
+    } else if (!playing && state.isPlaying && state.settings?.id) {
+      // Stopping play - end session
+      endSession(state.settings.id);
+    }
+    
     setState((prev) => ({ ...prev, isPlaying: playing }));
-  }, []);
+  }, [state.isPlaying, state.settings?.id]);
 
   const refreshData = useCallback(async () => {
     const settings = await getSettings();
@@ -191,6 +220,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     exitParentMode,
     setupPin,
     changePin,
+    resetPin,
     setCurrentPlaylist,
     setCurrentVideoIndex,
     nextVideo,

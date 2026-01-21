@@ -1,4 +1,5 @@
 import { db, type DBSettings } from '../indexedDB';
+import { generateSecureSalt, secureHash, isValidPin } from '../security';
 
 export type Settings = DBSettings;
 
@@ -17,7 +18,7 @@ export async function createSettings(pinHash: string): Promise<Settings> {
   return db.saveSettings(settings);
 }
 
-export async function updatePinHash(settingsId: string, pinHash: string): Promise<void> {
+export async function updatePinHash(settingsId: string, pinHash: string | null): Promise<void> {
   const settings = await db.getSettings();
   if (settings && settings.id === settingsId) {
     settings.pin_hash = pinHash;
@@ -35,16 +36,35 @@ export async function updateDailyLimit(settingsId: string, minutes: number): Pro
   }
 }
 
-// Local PIN hashing using Web Crypto API
+// Enhanced PIN hashing with secure salt
 export async function hashPin(pin: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pin + 'kidsafe-salt-v1');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  // Validate PIN format
+  if (!isValidPin(pin)) {
+    throw new Error('Invalid PIN format');
+  }
+  
+  // Generate secure random salt
+  const salt = await generateSecureSalt();
+  const hash = await secureHash(pin, salt);
+  
+  // Store salt and hash together (salt.hash format)
+  return `${salt}.${hash}`;
 }
 
 export async function verifyPin(inputPin: string, storedHash: string): Promise<boolean> {
-  const inputHash = await hashPin(inputPin);
-  return inputHash === storedHash;
+  // Validate input PIN format
+  if (!isValidPin(inputPin)) {
+    return false;
+  }
+  
+  // Parse stored hash (salt.hash format)
+  const parts = storedHash.split('.');
+  if (parts.length !== 2) {
+    return false;
+  }
+  
+  const [storedSalt, storedPinHash] = parts;
+  const inputHash = await secureHash(inputPin, storedSalt);
+  
+  return inputHash === storedPinHash;
 }
