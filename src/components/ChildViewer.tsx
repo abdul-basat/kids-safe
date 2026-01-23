@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  List,
   Play,
   Tv,
   PartyPopper,
@@ -16,10 +15,82 @@ import { QueueDrawer } from './QueueDrawer';
 import { TimeRestrictionOverlay } from './TimeRestrictionOverlay';
 import { getVideoThumbnail } from '../lib/youtube';
 import { isTimeLimitReached, isWithinAllowedHours } from '../lib/timeTracking';
+import {
+  initSandboxSecurity,
+  cleanupSandboxSecurity,
+} from '../lib/sandboxSecurity';
 
 const SWIPE_THRESHOLD = 50;
 const PARENT_TRIGGER_TAPS = 5;
 const PARENT_TRIGGER_TIMEOUT = 2000;
+
+/** Feedback component for parent tap-to-unlock */
+interface ParentTapFeedbackProps {
+  tapCount: number;
+  isVisible: boolean;
+  onTap: () => void;
+}
+
+function ParentTapFeedback({ tapCount, isVisible, onTap }: ParentTapFeedbackProps) {
+  const remainingTaps = PARENT_TRIGGER_TAPS - tapCount;
+  const progress = (tapCount / PARENT_TRIGGER_TAPS) * 100;
+
+  return (
+    <div className="relative">
+      {/* Gear button with progress ring */}
+      <button
+        onClick={onTap}
+        className={`w-12 h-12 rounded-full bg-white/60 hover:bg-white/90 flex items-center justify-center transition-all shadow-sm ${isVisible ? 'scale-110' : ''
+          }`}
+        aria-label="Parent access"
+        title="Tap 5 times for parent mode"
+      >
+        {/* Progress ring SVG */}
+        {isVisible && (
+          <svg
+            className="absolute inset-0 w-12 h-12 -rotate-90"
+            viewBox="0 0 48 48"
+          >
+            <circle
+              cx="24"
+              cy="24"
+              r="20"
+              fill="none"
+              stroke="rgba(59, 130, 246, 0.3)"
+              strokeWidth="3"
+            />
+            <circle
+              cx="24"
+              cy="24"
+              r="20"
+              fill="none"
+              stroke="rgb(59, 130, 246)"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray={`${progress * 1.256} 125.6`}
+              className="transition-all duration-200"
+            />
+          </svg>
+        )}
+        <Settings className={`w-6 h-6 text-gray-700 ${isVisible ? 'animate-pulse' : ''}`} />
+      </button>
+
+      {/* Toast notification */}
+      {isVisible && (
+        <div className="absolute top-14 right-0 whitespace-nowrap bg-gray-900/90 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg animate-fade-in z-50">
+          <div className="flex items-center gap-2">
+            <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {tapCount}/{PARENT_TRIGGER_TAPS}
+            </span>
+            <span>
+              {remainingTaps === 1 ? 'One more tap!' : `${remainingTaps} more taps`}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ChildViewer() {
   const {
@@ -42,6 +113,27 @@ export function ChildViewer() {
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('grid');
   const [showStreamingControls, setShowStreamingControls] = useState(false);
   const [showTimeRestriction, setShowTimeRestriction] = useState(false);
+  const [parentTapCount, setParentTapCount] = useState(0);
+  const [showParentTapFeedback, setShowParentTapFeedback] = useState(false);
+  const [escapeAttemptCount, setEscapeAttemptCount] = useState(0);
+  const [isPlayerPlaying, setIsPlayerPlaying] = useState(false); // Track player state for layout
+
+  // Initialize sandbox security on mount
+  useEffect(() => {
+    initSandboxSecurity();
+    console.log('[ChildViewer] Sandbox security initialized');
+    return () => {
+      cleanupSandboxSecurity();
+      console.log('[ChildViewer] Sandbox security cleaned up');
+    };
+  }, []);
+
+  // Handle escape attempts from the player
+  const handleEscapeAttempt = useCallback(() => {
+    console.warn('[ChildViewer] Escape attempt detected!');
+    setEscapeAttemptCount(prev => prev + 1);
+    // The YouTubePlayer handles the parent gate internally
+  }, []);
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const parentTapCountRef = useRef(0);
@@ -49,18 +141,28 @@ export function ChildViewer() {
 
   const handleParentTrigger = useCallback(() => {
     parentTapCountRef.current++;
+    const currentCount = parentTapCountRef.current;
+
+    // Update UI state for feedback
+    setParentTapCount(currentCount);
+    setShowParentTapFeedback(true);
+
     if (parentTapTimeoutRef.current) {
       clearTimeout(parentTapTimeoutRef.current);
     }
 
-    if (parentTapCountRef.current >= PARENT_TRIGGER_TAPS) {
+    if (currentCount >= PARENT_TRIGGER_TAPS) {
       parentTapCountRef.current = 0;
+      setParentTapCount(0);
+      setShowParentTapFeedback(false);
       setMode('pin-entry');
       return;
     }
 
     parentTapTimeoutRef.current = window.setTimeout(() => {
       parentTapCountRef.current = 0;
+      setParentTapCount(0);
+      setShowParentTapFeedback(false);
     }, PARENT_TRIGGER_TIMEOUT);
   }, [setMode]);
 
@@ -154,13 +256,13 @@ export function ChildViewer() {
     if (settings) {
       const timeLimitReached = isTimeLimitReached(settings);
       const withinAllowedHours = isWithinAllowedHours(settings);
-      
+
       if (timeLimitReached || !withinAllowedHours) {
         setShowTimeRestriction(true);
         return;
       }
     }
-    
+
     if (index !== undefined) {
       setCurrentVideoIndex(index);
     }
@@ -181,14 +283,13 @@ export function ChildViewer() {
           </p>
         </div>
 
-        <button
-          onClick={handleParentTrigger}
-          className="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors shadow-sm"
-          aria-label="Parent access"
-          title="Tap 5 times for parent mode"
-        >
-          <Settings className="w-6 h-6 text-gray-600" />
-        </button>
+        <div className="absolute top-4 right-4">
+          <ParentTapFeedback
+            tapCount={parentTapCount}
+            isVisible={showParentTapFeedback}
+            onTap={handleParentTrigger}
+          />
+        </div>
       </div>
     );
   }
@@ -215,14 +316,13 @@ export function ChildViewer() {
           </button>
         </div>
 
-        <button
-          onClick={handleParentTrigger}
-          className="absolute top-4 right-4 w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-colors shadow-sm"
-          aria-label="Parent access"
-          title="Tap 5 times for parent mode"
-        >
-          <Settings className="w-6 h-6 text-gray-600" />
-        </button>
+        <div className="absolute top-4 right-4">
+          <ParentTapFeedback
+            tapCount={parentTapCount}
+            isVisible={showParentTapFeedback}
+            onTap={handleParentTrigger}
+          />
+        </div>
       </div>
     );
   }
@@ -230,70 +330,87 @@ export function ChildViewer() {
   if (isWatching && currentVideo) {
     return (
       <div
-        className="h-screen bg-black flex flex-col overflow-hidden relative group"
-        onMouseEnter={() => setShowStreamingControls(true)}
-        onMouseLeave={() => setShowStreamingControls(false)}
+        className="h-screen bg-black flex flex-col overflow-hidden relative"
         onClick={() => setShowStreamingControls(!showStreamingControls)}
       >
-        <YouTubePlayer
-          videoId={currentVideo.video_id}
-          onEnded={handleVideoEnd}
-          onBack={handleBackToBrowse}
-          autoplay
-          showControls={showStreamingControls}
-          videoBlob={currentVideo.video_blob}
-        />
+        {/* Player Container - shrinks when paused */}
+        <div
+          className={`relative transition-all duration-500 ease-out ${isPlayerPlaying
+            ? 'flex-1'
+            : 'h-[50vh] md:h-[55vh] lg:h-[60vh]'
+            }`}
+          onMouseEnter={() => setShowStreamingControls(true)}
+          onMouseLeave={() => setShowStreamingControls(false)}
+        >
+          <YouTubePlayer
+            videoId={currentVideo.video_id}
+            onEnded={handleVideoEnd}
+            onBack={handleBackToBrowse}
+            autoplay
+            showControls={showStreamingControls}
+            videoBlob={currentVideo.video_blob}
+            onEscapeAttempt={handleEscapeAttempt}
+            onPlay={() => setIsPlayerPlaying(true)}
+            onPause={() => setIsPlayerPlaying(false)}
+          />
+        </div>
 
-        <div className={`fixed inset-0 pointer-events-none transition-all duration-500 z-40 ${showStreamingControls ? 'opacity-100' : 'opacity-0'}`}>
-          {/* Top Gradient for visibility */}
-          <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
-
-          {/* Bottom Gradient for shelf */}
-          <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
-
-          {/* Up Next Shelf Overlay */}
+        {/* More Videos Section - stuck at bottom when paused */}
+        <div
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900 via-gray-900 to-gray-900/95 transition-all duration-500 overflow-hidden z-50 ${isPlayerPlaying
+            ? 'h-0 opacity-0 pointer-events-none'
+            : 'opacity-100'
+            }`}
+          style={{ maxHeight: isPlayerPlaying ? 0 : '45vh' }}
+          onClick={(e) => e.stopPropagation()} // Prevent clicks from bubbling to player
+        >
           {currentPlaylist.videos.length > 1 && (
-            <div className="absolute bottom-0 inset-x-0 p-8 pt-0 pointer-events-auto flex flex-col gap-4">
-              <h3 className="text-sm font-black text-sky-400 uppercase tracking-widest flex items-center gap-2 px-2">
-                <span className="w-2 h-2 bg-sky-500 rounded-full animate-pulse" />
-                Up Next
+            <div className="h-full flex flex-col p-4">
+              <h3 className="text-sm font-black text-sky-400 uppercase tracking-widest flex items-center gap-2 mb-3">
+                <span className="w-2 h-2 bg-sky-500 rounded-full" />
+                More Videos
               </h3>
-              <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth mask-horizontal">
-                {currentPlaylist.videos
-                  .slice(currentVideoIndex + 1, currentVideoIndex + 16)
-                  .map((video, idx) => {
-                    const actualIndex = currentVideoIndex + 1 + idx;
-                    return (
-                      <button
-                        key={video.video_id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handlePlayVideo(actualIndex);
-                        }}
-                        className="flex-shrink-0 w-36 md:w-52 rounded-xl overflow-hidden bg-white/10 backdrop-blur-md border border-white/10 hover:bg-white/20 hover:scale-105 hover:border-sky-400 transition-all group group/card shadow-2xl"
-                      >
-                        <div className="aspect-video relative">
-                          <img
-                            src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
-                            alt={video.title}
-                            className="w-full h-full object-cover opacity-80 group-hover/card:opacity-100 transition-opacity"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity bg-black/20">
-                            <Play className="w-8 h-8 text-white drop-shadow-md" />
+              <div className="flex-1 overflow-y-auto scrollbar-hide">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+                  {currentPlaylist.videos
+                    .filter((_, idx) => idx !== currentVideoIndex)
+                    .map((video) => {
+                      const actualIndex = currentPlaylist.videos.findIndex(v => v.video_id === video.video_id);
+                      return (
+                        <button
+                          key={video.video_id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayVideo(actualIndex);
+                          }}
+                          className="rounded-xl overflow-hidden bg-white/10 border border-white/10 hover:bg-white/20 hover:scale-105 hover:border-sky-400 transition-all group/card"
+                        >
+                          <div className="aspect-video relative">
+                            <img
+                              src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
+                              alt={video.title}
+                              className="w-full h-full object-cover opacity-80 group-hover/card:opacity-100 transition-opacity"
+                              loading="lazy"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity bg-black/30">
+                              <Play className="w-6 h-6 text-white drop-shadow-md" />
+                            </div>
                           </div>
-                        </div>
-                        <div className="p-2">
-                          <p className="text-[10px] md:text-xs font-bold text-white line-clamp-2 text-left leading-tight">
-                            {video.title}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
+                          <div className="p-2">
+                            <p className="text-[10px] font-bold text-white line-clamp-2 text-left leading-tight">
+                              {video.title}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
               </div>
             </div>
           )}
         </div>
+
+        {/* Removed the old 'Up Next' overlay - now using 'More Videos' grid above */}
 
         <QueueDrawer
           videos={currentPlaylist.videos}
@@ -305,8 +422,8 @@ export function ChildViewer() {
             setIsQueueOpen(false);
           }}
         />
-        
-        <TimeRestrictionOverlay 
+
+        <TimeRestrictionOverlay
           isVisible={showTimeRestriction}
           onDismiss={() => setShowTimeRestriction(false)}
         />
@@ -332,14 +449,11 @@ export function ChildViewer() {
               >
                 <LayoutList className="w-6 h-6 text-gray-700" />
               </button>
-              <button
-                onClick={handleParentTrigger}
-                className="w-12 h-12 rounded-full bg-white/60 hover:bg-white/90 flex items-center justify-center transition-all shadow-sm active:scale-95"
-                aria-label="Parent access"
-                title="Tap 5 times for parent mode"
-              >
-                <Settings className="w-6 h-6 text-gray-700" />
-              </button>
+              <ParentTapFeedback
+                tapCount={parentTapCount}
+                isVisible={showParentTapFeedback}
+                onTap={handleParentTrigger}
+              />
             </div>
           </div>
 
@@ -375,8 +489,8 @@ export function ChildViewer() {
             </div>
           </div>
         </div>
-        
-        <TimeRestrictionOverlay 
+
+        <TimeRestrictionOverlay
           isVisible={showTimeRestriction}
           onDismiss={() => setShowTimeRestriction(false)}
         />
@@ -403,14 +517,11 @@ export function ChildViewer() {
           >
             <Grid3X3 className="w-6 h-6 text-gray-700" />
           </button>
-          <button
-            onClick={handleParentTrigger}
-            className="w-12 h-12 rounded-full bg-white/50 hover:bg-white/80 flex items-center justify-center transition-all shadow-sm active:scale-95"
-            aria-label="Parent access"
-            title="Tap 5 times for parent mode"
-          >
-            <Settings className="w-6 h-6 text-gray-700" />
-          </button>
+          <ParentTapFeedback
+            tapCount={parentTapCount}
+            isVisible={showParentTapFeedback}
+            onTap={handleParentTrigger}
+          />
         </div>
       </div>
 
@@ -481,8 +592,8 @@ export function ChildViewer() {
           setIsQueueOpen(false);
         }}
       />
-      
-      <TimeRestrictionOverlay 
+
+      <TimeRestrictionOverlay
         isVisible={showTimeRestriction}
         onDismiss={() => setShowTimeRestriction(false)}
       />

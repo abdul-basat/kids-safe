@@ -1,6 +1,30 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { RotateCcw, Play, Pause, Volume2, VolumeX, WifiOff, Maximize2, Minimize2 } from 'lucide-react';
+import { RotateCcw, Play, Pause, Volume2, VolumeX, WifiOff, Maximize2, Minimize2, AlertTriangle } from 'lucide-react';
 import { isOnline } from '../lib/offline';
+import {
+  onEscapeDetected,
+  lockNavigation,
+  unlockNavigation,
+  setPlayingState,
+} from '../lib/sandboxSecurity';
+
+/**
+ * SANDBOX SECURITY DOCUMENTATION
+ * ==============================
+ * 
+ * This component is designed to prevent ACCIDENTAL access to YouTube or external
+ * content from the kids video player. It uses defense-in-depth with multiple layers:
+ * 
+ * 1. Click shields over YouTube UI elements (logo, title, watermark)
+ * 2. End-screen blocker during final 10-15 seconds
+ * 3. CSS-based pseudo-fullscreen (no browser fullscreen)
+ * 4. Keyboard and gesture interception
+ * 5. Escape detection and recovery
+ * 6. Parent gate on detected escape attempts
+ * 
+ * DISCLAIMER: This does NOT claim absolute iframe-level control over YouTube's
+ * embedded player. YouTube IFrame API has inherent limitations.
+ */
 
 declare global {
   interface Window {
@@ -17,7 +41,8 @@ interface YouTubePlayerProps {
   onBack?: () => void;
   autoplay?: boolean;
   showControls?: boolean;
-  videoBlob?: Blob; // Added for offline support
+  videoBlob?: Blob;
+  onEscapeAttempt?: () => void; // Called when escape attempt is detected
 }
 
 let apiLoaded = false;
@@ -42,6 +67,9 @@ function loadYouTubeAPI(): Promise<void> {
   return apiLoadPromise;
 }
 
+// End screen blocker threshold (seconds before end)
+const END_SCREEN_THRESHOLD = 12;
+
 export function YouTubePlayer({
   videoId,
   onEnded,
@@ -51,6 +79,7 @@ export function YouTubePlayer({
   autoplay = false,
   showControls: externalShowControls,
   videoBlob,
+  onEscapeAttempt,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -67,8 +96,16 @@ export function YouTubePlayer({
   const [loadError, setLoadError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isNearEnd, setIsNearEnd] = useState(false); // Track if video is near end to block end screen
+
+  // Pseudo-fullscreen state (CSS-based, not browser fullscreen)
+  const [isPseudoFullscreen, setIsPseudoFullscreen] = useState(true);
+
+  // End screen blocker - activates in final seconds
+  const [isNearEnd, setIsNearEnd] = useState(false);
+
+  // Parent gate - shown on escape attempt
+  const [showParentGate, setShowParentGate] = useState(false);
+  const [escapeAttemptCount, setEscapeAttemptCount] = useState(0);
 
   const controlsTimeoutRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
@@ -77,12 +114,44 @@ export function YouTubePlayer({
   // Detect mobile devices
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
+  // ============================================================================
+  // ESCAPE DETECTION & RECOVERY
+  // ============================================================================
+
+  const handleEscapeAttempt = useCallback(() => {
+    console.warn('[Player] Escape attempt detected!');
+
+    // Pause playback immediately
+    try {
+      playerRef.current?.pauseVideo();
+    } catch (e) {
+      console.error('[Player] Failed to pause on escape:', e);
+    }
+
+    setIsPlaying(false);
+    setEscapeAttemptCount(prev => prev + 1);
+    setShowParentGate(true);
+
+    // Notify parent component
+    onEscapeAttempt?.();
+  }, [onEscapeAttempt]);
+
+  // Register escape handler with sandbox security
+  useEffect(() => {
+    const unsubscribe = onEscapeDetected(handleEscapeAttempt);
+    return unsubscribe;
+  }, [handleEscapeAttempt]);
+
+  // ============================================================================
+  // ORIENTATION LOCK (Preserved from original)
+  // ============================================================================
+
   const lockOrientation = useCallback(async () => {
     try {
       if (screen.orientation && 'lock' in screen.orientation) {
         // @ts-ignore
         await screen.orientation.lock('landscape').catch(() => {
-          console.log('[Orientation] Lock failed - requires user interaction or fullscreen');
+          console.log('[Orientation] Lock failed - requires user interaction');
         });
       }
     } catch (err) {
@@ -90,59 +159,64 @@ export function YouTubePlayer({
     }
   }, []);
 
-  const enterFullscreen = useCallback(async () => {
-    if (!wrapperRef.current) return;
-    try {
-      if (wrapperRef.current.requestFullscreen) {
-        await wrapperRef.current.requestFullscreen();
-      } else if ((wrapperRef.current as any).webkitRequestFullscreen) {
-        await (wrapperRef.current as any).webkitRequestFullscreen();
-      } else if ((wrapperRef.current as any).msRequestFullscreen) {
-        await (wrapperRef.current as any).msRequestFullscreen();
-      }
-      // Lock orientation after entering fullscreen for better compatibility
-      await lockOrientation();
-    } catch (err) {
-      console.warn('Fullscreen entry failed:', err);
-    }
+  // ============================================================================
+  // PSEUDO-FULLSCREEN (CSS-based, replaces browser fullscreen)
+  // ============================================================================
+
+  const enterPseudoFullscreen = useCallback(() => {
+    setIsPseudoFullscreen(true);
+    lockOrientation();
+    // Prevent scroll on body
+    document.body.style.overflow = 'hidden';
   }, [lockOrientation]);
 
-  const exitFullscreen = useCallback(async () => {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else if ((document as any).webkitExitFullscreen) {
-        await (document as any).webkitExitFullscreen();
-      } else if ((document as any).msExitFullscreen) {
-        await (document as any).msExitFullscreen();
-      }
-    } catch (err) {
-      console.warn('Fullscreen exit failed:', err);
-    }
+  const exitPseudoFullscreen = useCallback(() => {
+    setIsPseudoFullscreen(false);
+    document.body.style.overflow = '';
   }, []);
 
-  const toggleFullscreen = useCallback(async () => {
-    if (isFullscreen) {
-      await exitFullscreen();
+  const togglePseudoFullscreen = useCallback(() => {
+    if (isPseudoFullscreen) {
+      exitPseudoFullscreen();
     } else {
-      await enterFullscreen();
+      enterPseudoFullscreen();
     }
-  }, [isFullscreen, enterFullscreen, exitFullscreen]);
+  }, [isPseudoFullscreen, enterPseudoFullscreen, exitPseudoFullscreen]);
 
-  // Listen for fullscreen changes
+  // Always start in pseudo-fullscreen
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    enterPseudoFullscreen();
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.body.style.overflow = '';
+    };
+  }, [enterPseudoFullscreen]);
+
+  // ============================================================================
+  // NAVIGATION LOCKING
+  // ============================================================================
+
+  useEffect(() => {
+    if (isPlaying) {
+      lockNavigation();
+      setPlayingState(true);
+    } else {
+      // Don't unlock immediately - keep locked while in player
+      setPlayingState(false);
+    }
+  }, [isPlaying]);
+
+  // Lock navigation while player is mounted
+  useEffect(() => {
+    lockNavigation();
+    return () => {
+      unlockNavigation();
     };
   }, []);
 
-  // Sync video blob to local URL
+  // ============================================================================
+  // VIDEO BLOB HANDLING (Offline support)
+  // ============================================================================
+
   useEffect(() => {
     if (videoBlob) {
       const url = URL.createObjectURL(videoBlob);
@@ -153,8 +227,12 @@ export function YouTubePlayer({
     }
   }, [videoBlob]);
 
-  // Use external controls if provided, otherwise fallback to internal logic
+  // Use external controls if provided
   const actualShowControls = externalShowControls !== undefined ? externalShowControls : internalShowControls;
+
+  // ============================================================================
+  // ONLINE/OFFLINE STATUS
+  // ============================================================================
 
   useEffect(() => {
     const handleStatusChange = () => setIsOnlineStatus(isOnline());
@@ -166,10 +244,13 @@ export function YouTubePlayer({
     };
   }, []);
 
+  // ============================================================================
+  // PROGRESS TRACKING & END SCREEN DETECTION
+  // ============================================================================
+
   const updateProgress = useCallback(() => {
     try {
       if (isOnlineStatus && playerRef.current && isPlaying && !isDragging) {
-        // Safety check: ensure iframe is still connected
         const iframe = playerRef.current.getIframe?.();
         if (!iframe || !iframe.isConnected) return;
 
@@ -178,22 +259,22 @@ export function YouTubePlayer({
         setCurrentTime(current);
         if (total !== duration) setDuration(total);
 
-        // Detect when video is near end (within 3 seconds) to block YouTube end screen
-        if (total > 0 && total - current <= 3) {
+        // Detect when video is near end to block YouTube end screen
+        // Increased threshold to 12 seconds for better protection
+        if (total > 0 && total - current <= END_SCREEN_THRESHOLD) {
           setIsNearEnd(true);
         } else {
           setIsNearEnd(false);
         }
       }
     } catch (err) {
-      // Silently ignore postMessage errors during polling
       console.debug('[YouTube] Progress update skipped:', err);
     }
   }, [isPlaying, isDragging, duration, isOnlineStatus]);
 
   useEffect(() => {
     if (isOnlineStatus && isPlaying && !isDragging) {
-      progressIntervalRef.current = window.setInterval(updateProgress, 1000);
+      progressIntervalRef.current = window.setInterval(updateProgress, 500); // More frequent updates
     } else if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
     }
@@ -202,10 +283,9 @@ export function YouTubePlayer({
     };
   }, [isPlaying, isDragging, updateProgress, isOnlineStatus]);
 
-  useEffect(() => {
-    // Initial lock attempt for fullscreen experiences
-    lockOrientation();
-  }, [lockOrientation]);
+  // ============================================================================
+  // YOUTUBE PLAYER INITIALIZATION
+  // ============================================================================
 
   useEffect(() => {
     let mounted = true;
@@ -213,14 +293,14 @@ export function YouTubePlayer({
     async function initPlayer() {
       if (!isOnlineStatus) return;
 
-      console.log(`[YouTube] Initializing player for ${videoId}, mobile: ${isMobile}, autoplay: ${autoplay}`);
+      console.log(`[YouTube] Initializing player for ${videoId}, mobile: ${isMobile}`);
 
       setLoadError(false);
       setIsReady(false);
+      setIsNearEnd(false);
 
       if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
 
-      // Longer timeout for mobile
       const timeout = isMobile ? 45000 : 30000;
       loadTimeoutRef.current = window.setTimeout(() => {
         if (mounted && !isReady) {
@@ -244,24 +324,27 @@ export function YouTubePlayer({
           } catch (e) { }
         }
 
-        console.log('[YouTube] Creating player instance...');
+        console.log('[YouTube] Creating player instance with hardened config...');
 
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId,
-          // Use youtube-nocookie.com for enhanced privacy mode - reduces tracking and some end screen behaviors
+          // Use youtube-nocookie.com for enhanced privacy
           host: 'https://www.youtube-nocookie.com',
           playerVars: {
-            // CRITICAL: Disable autoplay on mobile to prevent timeout
-            autoplay: (isMobile ? 0 : (autoplay ? 1 : 0)),
-            controls: 0,
-            disablekb: 1,
-            fs: 0,
-            iv_load_policy: 3,
-            modestbranding: 1,
-            playsinline: 1,
-            rel: 0,
+            // HARDENED CONFIGURATION
+            autoplay: isMobile ? 0 : (autoplay ? 1 : 0),
+            controls: 0,           // Disable YouTube controls (we use our own)
+            disablekb: 1,          // Disable keyboard
+            fs: 0,                 // Disable fullscreen button
+            iv_load_policy: 3,     // Disable annotations
+            modestbranding: 1,     // Minimal YouTube branding
+            playsinline: 1,        // Play inline on mobile
+            rel: 0,                // Disable related videos
+            showinfo: 0,           // Hide video info (deprecated but helps)
             origin: window.location.origin,
-            enablejsapi: 1,
+            enablejsapi: 1,        // Enable JS API
+            cc_load_policy: 0,     // Don't auto-show captions
+            hl: 'en',              // Force English to reduce UI variations
           },
           events: {
             onReady: () => {
@@ -272,8 +355,6 @@ export function YouTubePlayer({
                 setLoadError(false);
                 if (playerRef.current) {
                   setDuration(playerRef.current.getDuration());
-                  // Auto-play on both desktop and mobile
-                  // On mobile, the user already tapped to open the player, so this is allowed
                   if (autoplay) {
                     try {
                       console.log('[YouTube] Attempting auto-play...');
@@ -292,20 +373,17 @@ export function YouTubePlayer({
               if (event.data === window.YT.PlayerState.PLAYING) {
                 setIsPlaying(true);
                 onPlay?.();
-                // On BOTH mobile and desktop, force fullscreen when video starts playing for the first time
                 if (!hasUserInteracted) {
-                  console.log('[YouTube] Video started - forcing fullscreen');
+                  console.log('[YouTube] Video started - activating sandbox');
                   setHasUserInteracted(true);
-                  enterFullscreen();
-                  if (isMobile) {
-                    lockOrientation();
-                  }
+                  enterPseudoFullscreen();
                 }
               } else if (event.data === window.YT.PlayerState.PAUSED) {
                 setIsPlaying(false);
                 onPause?.();
               } else if (event.data === window.YT.PlayerState.ENDED) {
                 setIsPlaying(false);
+                setIsNearEnd(false);
                 onEnded?.();
               }
             },
@@ -339,14 +417,11 @@ export function YouTubePlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId, autoplay, onEnded, onPlay, onPause, isOnlineStatus, retryCount, isMobile]);
 
-  const togglePlay = useCallback(async () => {
-    // On FIRST play on mobile, try fullscreen to enable orientation lock
-    if (!isPlaying && isMobile && !hasUserInteracted) {
-      console.log('[Player] First play on mobile, attempting fullscreen...');
-      await enterFullscreen();
-      setHasUserInteracted(true);
-    }
+  // ============================================================================
+  // PLAYBACK CONTROLS
+  // ============================================================================
 
+  const togglePlay = useCallback(async () => {
     if (!isOnlineStatus && localBlobUrl) {
       const video = document.getElementById('local-video') as HTMLVideoElement;
       if (video) {
@@ -369,7 +444,7 @@ export function YouTubePlayer({
       console.log('[Player] Playing...');
       playerRef.current.playVideo();
     }
-  }, [isReady, isPlaying, isOnlineStatus, localBlobUrl, enterFullscreen, isMobile, hasUserInteracted]);
+  }, [isReady, isPlaying, isOnlineStatus, localBlobUrl]);
 
   const toggleMute = useCallback(() => {
     if (!isOnlineStatus && localBlobUrl) {
@@ -408,6 +483,10 @@ export function YouTubePlayer({
     }
   };
 
+  // ============================================================================
+  // CONTROLS VISIBILITY
+  // ============================================================================
+
   const handleContainerClick = useCallback(() => {
     if (externalShowControls !== undefined) return;
 
@@ -428,6 +507,29 @@ export function YouTubePlayer({
     };
   }, []);
 
+  // ============================================================================
+  // PARENT GATE HANDLERS
+  // ============================================================================
+
+  const handleParentGateDismiss = useCallback(() => {
+    setShowParentGate(false);
+    // Resume playback after parent dismisses
+    try {
+      playerRef.current?.playVideo();
+    } catch (e) {
+      console.error('[Player] Failed to resume after parent gate:', e);
+    }
+  }, []);
+
+  const handleParentGateBack = useCallback(() => {
+    setShowParentGate(false);
+    onBack?.();
+  }, [onBack]);
+
+  // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
+
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return "00:00";
     const h = Math.floor(seconds / 3600);
@@ -445,13 +547,16 @@ export function YouTubePlayer({
         e.stopPropagation();
         onBack?.();
       }}
-      className={`px-6 py-3 rounded-full bg-white/10 backdrop-blur-md text-white font-bold hover:bg-white/20 transition-all shadow-lg border border-white/10 flex items-center gap-2 group/btn active:scale-95 pointer-events-auto ${className}`}
+      className={`w-12 h-12 rounded-full bg-white/10 backdrop-blur-md text-white hover:bg-white/20 transition-all shadow-lg border border-white/10 flex items-center justify-center active:scale-95 pointer-events-auto ${className}`}
+      title="Back to Browse"
     >
-      <RotateCcw className="w-5 h-5 -scale-x-100 group-hover/btn:-translate-x-1 transition-transform" />
-      Back to Browse
+      <RotateCcw className="w-5 h-5 -scale-x-100" />
     </button>
   );
 
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
   return (
     <div
@@ -459,31 +564,89 @@ export function YouTubePlayer({
       className="absolute inset-0 bg-black overflow-hidden"
       onClick={handleContainerClick}
       onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
     >
-      {/* Stable container for YouTube to prevent removeChild errors during unmounting/re-rendering */}
+      {/* ================================================================
+          PARENT GATE OVERLAY - Shown on escape attempt
+          ================================================================ */}
+      {showParentGate && (
+        <div className="parent-gate-overlay">
+          <div className="bg-white rounded-3xl p-8 max-w-md mx-4 text-center shadow-2xl">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-amber-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Parent Check</h2>
+            <p className="text-gray-600 mb-6">
+              An action was blocked to keep your child safe. Would you like to continue watching or go back?
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={handleParentGateDismiss}
+                className="w-full py-3 px-6 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-xl transition-colors"
+              >
+                Continue Watching
+              </button>
+              <button
+                onClick={handleParentGateBack}
+                className="w-full py-3 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-colors"
+              >
+                Back to Browse
+              </button>
+            </div>
+            {escapeAttemptCount > 1 && (
+              <p className="text-xs text-gray-400 mt-4">
+                Blocked {escapeAttemptCount} escape attempts this session
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================
+          YOUTUBE PLAYER CONTAINER
+          ================================================================ */}
       <div
         className={`w-full h-full pointer-events-none ${(isOnlineStatus && !loadError) ? 'block' : 'hidden'}`}
       >
+        {/* YouTube iframe container */}
         <div
           ref={containerRef}
           className="w-full h-full"
         />
-        {/* Overlay to block YouTube title bar at top - prevents kids from clicking to YouTube */}
+
+        {/* ================================================================
+            CLICK SHIELDS - Block YouTube UI elements
+            ================================================================ */}
+
+        {/* Top shield - blocks YouTube logo, title bar, info button */}
         <div
-          className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-auto z-10"
+          className="youtube-blocker youtube-blocker-top"
           onClick={(e) => e.stopPropagation()}
-        />
-        {/* Overlay to block YouTube logo/watermark at bottom right */}
-        <div
-          className="absolute bottom-0 right-0 w-40 h-16 pointer-events-auto z-10"
-          onClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
         />
 
-        {/* CRITICAL: Full-screen end blocker - appears when video is near end to block YouTube's related videos/end screen */}
+        {/* Bottom-right shield - blocks YouTube watermark */}
+        <div
+          className="youtube-blocker youtube-blocker-bottom-right"
+          onClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        />
+
+        {/* Bottom-left shield - blocks video title tooltip */}
+        <div
+          className="youtube-blocker youtube-blocker-bottom-left"
+          onClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        />
+
+        {/* ================================================================
+            END SCREEN BLOCKER - Full screen during final seconds
+            ================================================================ */}
         {isNearEnd && (
           <div
-            className="absolute inset-0 bg-black/95 pointer-events-auto z-20 flex items-center justify-center"
+            className="youtube-blocker-endscreen"
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
           >
             <div className="text-center">
               <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
@@ -493,6 +656,9 @@ export function YouTubePlayer({
         )}
       </div>
 
+      {/* ================================================================
+          OFFLINE - No video available
+          ================================================================ */}
       {!isOnlineStatus && !localBlobUrl && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-gray-900 px-8 text-center">
           <div className="absolute top-8 left-8">
@@ -506,6 +672,9 @@ export function YouTubePlayer({
         </div>
       )}
 
+      {/* ================================================================
+          OFFLINE - Local video playback
+          ================================================================ */}
       {!isOnlineStatus && localBlobUrl && (
         <video
           id="local-video"
@@ -526,15 +695,38 @@ export function YouTubePlayer({
         />
       )}
 
-      {actualShowControls && (isOnlineStatus ? isReady : !!localBlobUrl) && (
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 flex flex-col justify-between p-8 pointer-events-none">
-          <div className="pointer-events-auto">
+      {/* ================================================================
+          CUSTOM CONTROLS OVERLAY
+          ================================================================ */}
+      {actualShowControls && (isOnlineStatus ? isReady : !!localBlobUrl) && !showParentGate && (
+        <div className="absolute inset-0 flex flex-col pointer-events-none z-30">
+          {/* Top bar with back button */}
+          <div className="p-4 md:p-6 pointer-events-auto bg-gradient-to-b from-black/60 to-transparent">
             <BackButton />
           </div>
 
-          <div className="flex flex-col gap-6 pointer-events-auto">
-            <div className="flex items-center gap-4 group">
-              <span className="text-white text-sm font-medium w-12">{formatTime(currentTime)}</span>
+          {/* Center - Play/Pause Button */}
+          <div className="flex-1 flex items-center justify-center pointer-events-auto">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
+              className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-all transform hover:scale-110 active:scale-95 shadow-2xl border border-white/20"
+            >
+              {isPlaying ? (
+                <Pause className="w-10 h-10 md:w-12 md:h-12 text-white" />
+              ) : (
+                <Play className="w-10 h-10 md:w-12 md:h-12 text-white ml-1" />
+              )}
+            </button>
+          </div>
+
+          {/* Bottom controls */}
+          <div className="p-4 md:p-6 pointer-events-auto bg-gradient-to-t from-black/70 to-transparent">
+            {/* Progress bar */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-white text-xs md:text-sm font-medium w-10 md:w-12 text-right">{formatTime(currentTime)}</span>
               <input
                 type="range"
                 min={0}
@@ -545,53 +737,24 @@ export function YouTubePlayer({
                 onChange={handleSeekChange}
                 onMouseUp={handleSeekEnd}
                 onTouchEnd={handleSeekEnd}
-                className="flex-1 h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:h-3 transition-all"
+                className="flex-1 h-1 md:h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:h-2 md:hover:h-3 transition-all"
               />
-              <span className="text-white text-sm font-medium w-12">{formatTime(duration)}</span>
+              <span className="text-white text-xs md:text-sm font-medium w-10 md:w-12">{formatTime(duration)}</span>
             </div>
 
-            <div className="flex items-center justify-center relative">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePlay();
-                }}
-                className="w-24 h-24 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-all transform hover:scale-110 active:scale-95 shadow-xl"
-              >
-                {isPlaying ? (
-                  <Pause className="w-12 h-12 text-white" />
-                ) : (
-                  <Play className="w-12 h-12 text-white ml-2" />
-                )}
-              </button>
-
+            {/* Mute button */}
+            <div className="flex justify-end">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleMute();
                 }}
-                className="absolute right-0 w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-all border border-white/10"
+                className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-all border border-white/10"
               >
                 {isMuted ? (
-                  <VolumeX className="w-8 h-8 text-white" />
+                  <VolumeX className="w-6 h-6 text-white" />
                 ) : (
-                  <Volume2 className="w-8 h-8 text-white" />
-                )}
-              </button>
-
-              {/* Fullscreen Toggle */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleFullscreen();
-                }}
-                className="absolute left-0 w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/30 transition-all border border-white/10"
-                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-              >
-                {isFullscreen ? (
-                  <Minimize2 className="w-8 h-8 text-white" />
-                ) : (
-                  <Maximize2 className="w-8 h-8 text-white" />
+                  <Volume2 className="w-6 h-6 text-white" />
                 )}
               </button>
             </div>
@@ -599,6 +762,9 @@ export function YouTubePlayer({
         </div>
       )}
 
+      {/* ================================================================
+          LOADING STATE
+          ================================================================ */}
       {isOnlineStatus && !isReady && !loadError && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
           <div className="absolute top-8 left-8">
@@ -611,6 +777,9 @@ export function YouTubePlayer({
         </div>
       )}
 
+      {/* ================================================================
+          ERROR STATE
+          ================================================================ */}
       {loadError && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-40">
           <div className="absolute top-8 left-8">
