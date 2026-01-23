@@ -358,13 +358,12 @@ export function ChildViewer() {
           />
         </div>
 
-        {/* More Videos Section - stuck at bottom when paused */}
+        {/* More Videos Section - appears BELOW the player when paused */}
         <div
-          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900 via-gray-900 to-gray-900/95 transition-all duration-500 overflow-hidden z-50 ${isPlayerPlaying
-            ? 'h-0 opacity-0 pointer-events-none'
-            : 'opacity-100'
+          className={`bg-gray-900 transition-all duration-500 overflow-hidden ${isPlayerPlaying
+            ? 'h-0 opacity-0'
+            : 'flex-1 opacity-100'
             }`}
-          style={{ maxHeight: isPlayerPlaying ? 0 : '45vh' }}
           onClick={(e) => e.stopPropagation()} // Prevent clicks from bubbling to player
         >
           {currentPlaylist.videos.length > 1 && (
@@ -382,12 +381,20 @@ export function ChildViewer() {
                       return (
                         <button
                           key={video.video_id}
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
                             handlePlayVideo(actualIndex);
                           }}
-                          className="flex-shrink-0 w-32 sm:w-40 md:w-48 rounded-xl overflow-hidden bg-white/10 border border-white/10 hover:bg-white/20 hover:scale-105 hover:border-sky-400 transition-all group/card"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              handlePlayVideo(actualIndex);
+                            }
+                          }}
+                          className="flex-shrink-0 w-32 sm:w-40 md:w-48 rounded-xl overflow-hidden bg-white/10 border border-white/10 hover:bg-white/20 hover:scale-105 hover:border-sky-400 transition-all group/card focus:outline-none focus:ring-2 focus:ring-sky-400"
                         >
                           <div className="aspect-video relative">
                             <img
