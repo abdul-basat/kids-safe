@@ -111,6 +111,18 @@ export function YouTubePlayer({
   const progressIntervalRef = useRef<number | null>(null);
   const loadTimeoutRef = useRef<number | null>(null);
 
+  // Refs for callbacks to prevent re-initialization
+  const onPlayRef = useRef(onPlay);
+  const onPauseRef = useRef(onPause);
+  const onEndedRef = useRef(onEnded);
+
+  // Keep refs updated
+  useEffect(() => {
+    onPlayRef.current = onPlay;
+    onPauseRef.current = onPause;
+    onEndedRef.current = onEnded;
+  }, [onPlay, onPause, onEnded]);
+
   // Detect mobile devices
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -372,7 +384,7 @@ export function YouTubePlayer({
 
               if (event.data === window.YT.PlayerState.PLAYING) {
                 setIsPlaying(true);
-                onPlay?.();
+                onPlayRef.current?.();
                 if (!hasUserInteracted) {
                   console.log('[YouTube] Video started - activating sandbox');
                   setHasUserInteracted(true);
@@ -380,11 +392,11 @@ export function YouTubePlayer({
                 }
               } else if (event.data === window.YT.PlayerState.PAUSED) {
                 setIsPlaying(false);
-                onPause?.();
+                onPauseRef.current?.();
               } else if (event.data === window.YT.PlayerState.ENDED) {
                 setIsPlaying(false);
                 setIsNearEnd(false);
-                onEnded?.();
+                onEndedRef.current?.();
               }
             },
             onError: (event: any) => {
@@ -415,7 +427,7 @@ export function YouTubePlayer({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId, autoplay, onEnded, onPlay, onPause, isOnlineStatus, retryCount, isMobile]);
+  }, [videoId, autoplay, isOnlineStatus, retryCount, isMobile]);
 
   // ============================================================================
   // PLAYBACK CONTROLS
