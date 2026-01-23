@@ -331,7 +331,6 @@ export function ChildViewer() {
     return (
       <div
         className="h-screen bg-black flex flex-col overflow-hidden relative"
-        onClick={() => setShowStreamingControls(!showStreamingControls)}
       >
         {/* Player Container - shrinks when paused */}
         <div
@@ -341,6 +340,10 @@ export function ChildViewer() {
             }`}
           onMouseEnter={() => setShowStreamingControls(true)}
           onMouseLeave={() => setShowStreamingControls(false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowStreamingControls(!showStreamingControls);
+          }}
         >
           <YouTubePlayer
             videoId={currentVideo.video_id}
@@ -370,8 +373,8 @@ export function ChildViewer() {
                 <span className="w-2 h-2 bg-sky-500 rounded-full" />
                 More Videos
               </h3>
-              <div className="flex-1 overflow-y-auto scrollbar-hide">
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+              <div className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-hide">
+                <div className="flex gap-3 pb-2">
                   {currentPlaylist.videos
                     .filter((_, idx) => idx !== currentVideoIndex)
                     .map((video) => {
@@ -381,19 +384,21 @@ export function ChildViewer() {
                           key={video.video_id}
                           onClick={(e) => {
                             e.stopPropagation();
+                            e.preventDefault();
                             handlePlayVideo(actualIndex);
                           }}
-                          className="rounded-xl overflow-hidden bg-white/10 border border-white/10 hover:bg-white/20 hover:scale-105 hover:border-sky-400 transition-all group/card"
+                          className="flex-shrink-0 w-32 sm:w-40 md:w-48 rounded-xl overflow-hidden bg-white/10 border border-white/10 hover:bg-white/20 hover:scale-105 hover:border-sky-400 transition-all group/card"
                         >
                           <div className="aspect-video relative">
                             <img
                               src={video.thumbnail_url || getVideoThumbnail(video.video_id)}
                               alt={video.title}
-                              className="w-full h-full object-cover opacity-80 group-hover/card:opacity-100 transition-opacity"
+                              className="w-full h-full object-cover opacity-80 group-hover/card:opacity-100 transition-opacity pointer-events-none"
                               loading="lazy"
+                              draggable={false}
                             />
-                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity bg-black/30">
-                              <Play className="w-6 h-6 text-white drop-shadow-md" />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <Play className="w-8 h-8 text-white drop-shadow-md" />
                             </div>
                           </div>
                           <div className="p-2">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { RotateCcw, Play, Pause, Volume2, VolumeX, WifiOff, Maximize2, Minimize2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Volume2, VolumeX, WifiOff, Maximize2, Minimize2, AlertTriangle, RotateCcw } from 'lucide-react';
 import { isOnline } from '../lib/offline';
 import {
   onEscapeDetected,
@@ -550,7 +550,7 @@ export function YouTubePlayer({
       className={`w-12 h-12 rounded-full bg-white/10 backdrop-blur-md text-white hover:bg-white/20 transition-all shadow-lg border border-white/10 flex items-center justify-center active:scale-95 pointer-events-auto ${className}`}
       title="Back to Browse"
     >
-      <RotateCcw className="w-5 h-5 -scale-x-100" />
+      <ArrowLeft className="w-6 h-6" />
     </button>
   );
 
